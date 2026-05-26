@@ -1,0 +1,6 @@
+{
+  "name": "GitMetrics",
+  "description": "GitLab 研发效能度量与分析工具，汇总工程活跃度、提交统计、活跃贡献者、分支及个人产出分析。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

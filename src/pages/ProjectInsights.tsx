@@ -453,9 +453,6 @@ export const ProjectInsights = () => {
                     <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-[#1e293b] border border-outline text-[#38bdf8]">
                         <span className="w-2 h-2 rounded-full bg-tertiary mr-2 animate-pulse"></span> 实时追踪中
                     </span>
-                    <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-tertiary-fixed text-on-tertiary-fixed-variant border border-tertiary-container">
-                        {insights?.project?.language || 'TypeScript'}
-                    </span>
                     <button 
                         onClick={() => {
                             if (!insights) return;

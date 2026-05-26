@@ -413,6 +413,55 @@ function getMockProjectInsights(projectIdStr?: string) {
   };
 }
 
+function getMockContributorCommits(projectIdStr?: string, authorName?: string, limit = 10, page = 1) {
+  const pId = projectIdStr || "frontend-framework";
+  const author = authorName || "Sarah Chen";
+  
+  const commitMessages: string[] = [
+    "feat: 优化侧边栏在高分辨率屏幕下的排版，支持多段自适应收起",
+    "fix: 修复多级表单联动校验失效导致空数据触发崩溃的边界缺陷",
+    "refactor: 重构状态管理层基础逻辑，减少不必要的重新渲染开销",
+    "perf: 压缩基础包依赖体积，合并静态向量图为雪碧图结构",
+    "docs: 补全设计系统基础栅格排版指南及配套代码演示指南",
+    "chore: 升级 React-Query、Lucide-React 核心依赖包版本",
+    "test: 为核心弹性组件库增加单元测试覆盖，覆盖率提升至85%",
+    "ci: 修复自动化制品发布流程中缺失的构建压缩缓存指令",
+    "style: 统一输入文本控件的聚焦描边色彩及渐变缓动微动画",
+    "feat: 新增一系列精美的 BentoGrid 网格卡片容器展示样式"
+  ];
+  
+  const items = [];
+  const startIndex = (page - 1) * limit;
+  const totalMockCount = 35; 
+  
+  const seedBase = (pId + author).split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  
+  for (let i = startIndex; i < Math.min(startIndex + limit, totalMockCount); i++) {
+    const seed = (i * 12345 + seedBase) % 999983;
+    const msg = commitMessages[seed % commitMessages.length];
+    const daysAgo = Math.floor(i / 1.5) + 1;
+    const date = new Date(Date.now() - daysAgo * 24 * 3600 * 1000).toISOString();
+    const additions = (seed % 150) + 10;
+    const deletions = Math.round((seed % 40) * 0.7) + 2;
+    
+    items.push({
+      id: `mock-commit-${seed}`,
+      shortId: `commit-${seed.toString(16).substring(0, 7)}`,
+      title: msg,
+      authorName: author,
+      authoredDate: date,
+      additions,
+      deletions,
+      total: additions + deletions
+    });
+  }
+  
+  return {
+    items,
+    hasMore: startIndex + limit < totalMockCount
+  };
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3001;
@@ -614,6 +663,72 @@ async function startServer() {
       console.error("Failed fetching project insights:", error);
       const projectIdStr = typeof req.query.projectId === 'string' && req.query.projectId ? req.query.projectId : undefined;
       res.json(getMockProjectInsights(projectIdStr));
+    }
+  });
+
+  app.get("/api/gitlab/project-commits", async (req, res) => {
+    try {
+      const gitlabUrl = process.env.GITLAB_URL;
+      const privateToken = process.env.PRIVATE_TOKEN;
+      const hasCredentials = gitlabUrl && privateToken;
+
+      const projectIdStr = typeof req.query.projectId === 'string' && req.query.projectId ? req.query.projectId : undefined;
+      const author = typeof req.query.author === 'string' && req.query.author ? req.query.author : undefined;
+      const limit = Math.max(Number(req.query.limit || 10), 1);
+      const page = Math.max(Number(req.query.page || 1), 1);
+
+      if (!hasCredentials) {
+        return res.json(getMockContributorCommits(projectIdStr, author, limit, page));
+      }
+
+      let projectId: number | undefined = projectIdStr ? Number(projectIdStr) : undefined;
+      if (!projectId && projectIdStr) {
+        const { projects } = await fetchAllGitLabProjects(undefined, 100);
+        const found = projects.find(p => p.name.toLowerCase() === projectIdStr.toLowerCase() || p.path_with_namespace.toLowerCase() === projectIdStr.toLowerCase());
+        if (found) projectId = found.id;
+      }
+      if (!projectId) {
+        const { projects } = await fetchAllGitLabProjects(undefined, 1);
+        if (projects.length > 0) projectId = projects[0].id;
+      }
+
+      if (!projectId) {
+        return res.json({ items: [], hasMore: false });
+      }
+
+      const params = new URLSearchParams({
+        per_page: String(limit),
+        page: String(page)
+      });
+      if (author) {
+        params.set('author', author);
+      }
+
+      const response = await gitlabRequest<GitLabCommit[]>(`/projects/${projectId}/repository/commits?${params.toString()}`);
+      const commits = response.data || [];
+
+      const enriched = commits.map(commit => {
+        const stats = getCommitStats(commit.id);
+        return {
+          id: commit.id,
+          shortId: commit.short_id || commit.id.substring(0, 8),
+          title: commit.title,
+          authorName: commit.author_name,
+          authoredDate: commit.authored_date,
+          additions: stats.additions,
+          deletions: stats.deletions,
+          total: stats.total
+        };
+      });
+
+      return res.json({
+        items: enriched,
+        hasMore: commits.length === limit
+      });
+
+    } catch (error) {
+      console.error("Failed fetching project commits:", error);
+      res.json({ items: [], hasMore: false });
     }
   });
 

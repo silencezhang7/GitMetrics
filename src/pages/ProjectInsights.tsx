@@ -80,6 +80,60 @@ export const ProjectInsights = () => {
     // Filter growth trend
     const [timeframe, setTimeframe] = useState('Last 6 Months');
 
+    // Hover tooltip for growth line chart
+    const [hoveredPoint, setHoveredPoint] = useState<{
+        x: number;
+        y: number;
+        value: number;
+        type: 'additions' | 'deletions';
+        label: string;
+    } | null>(null);
+
+    // Contributor commits detail modal/drawer state
+    const [selectedContributor, setSelectedContributor] = useState<Contributor | null>(null);
+    const [contributorCommits, setContributorCommits] = useState<any[]>([]);
+    const [commitsPage, setCommitsPage] = useState<number>(1);
+    const [hasMoreCommits, setHasMoreCommits] = useState<boolean>(false);
+    const [isCommitsLoading, setIsCommitsLoading] = useState<boolean>(false);
+    const [commitsError, setCommitsError] = useState<string | null>(null);
+
+    const fetchContributorCommits = async (contributorName: string, pageNum: number, append = false) => {
+        if (!selectedProjectId) return;
+        setIsCommitsLoading(true);
+        setCommitsError(null);
+        try {
+            const limit = 6;
+            const response = await fetch(
+                `/api/gitlab/project-commits?projectId=${encodeURIComponent(selectedProjectId)}&author=${encodeURIComponent(contributorName)}&page=${pageNum}&limit=${limit}`
+            );
+            if (!response.ok) {
+                throw new Error('获取开发者提交记录失败');
+            }
+            const data = await response.json();
+            if (append) {
+                setContributorCommits((prev) => [...prev, ...data.items]);
+            } else {
+                setContributorCommits(data.items);
+            }
+            setHasMoreCommits(data.hasMore);
+            setCommitsPage(pageNum);
+        } catch (err: any) {
+            setCommitsError(err.message || '加载记录出错');
+        } finally {
+            setIsCommitsLoading(false);
+        }
+    };
+
+    // Trigger when selected contributor changes
+    useEffect(() => {
+        if (selectedContributor) {
+            setContributorCommits([]);
+            fetchContributorCommits(selectedContributor.name, 1, false);
+        } else {
+            setContributorCommits([]);
+        }
+    }, [selectedContributor, selectedProjectId]);
+
     // Fallback sandbox list if API has no projects
     const fallbackProjects: ProjectItem[] = [
         { id: 'frontend-framework', name: 'frontend-framework' },
@@ -451,14 +505,81 @@ export const ProjectInsights = () => {
                                             <path d={svgData.deletionLine} fill="none" stroke="#ef4444" strokeWidth="1.8" strokeDasharray="3 3" strokeLinecap="round" strokeLinejoin="round" opacity="0.8"></path>
                                         )}
 
-                                        {/* Circle Dots markers */}
+                                        {/* Circle Dots markers for Additions */}
                                         {svgData.additionPoints.map((p, i) => (
-                                            <g key={`add-g-${i}`} className="group/dot cursor-pointer">
-                                                <circle cx={p.x} cy={p.y} r="3" fill="#10b981" stroke="#0f172a" strokeWidth="1"></circle>
-                                                <circle cx={p.x} cy={p.y} r="7" fill="#10b981" opacity="0" className="hover:opacity-30 transition-opacity"></circle>
+                                            <g 
+                                                key={`add-g-${i}`} 
+                                                className="cursor-pointer group/dot"
+                                                onMouseEnter={(e) => {
+                                                    const target = e.currentTarget;
+                                                    const rect = target.getBoundingClientRect();
+                                                    const parentContainer = target.closest('.relative');
+                                                    if (parentContainer) {
+                                                        const parentRect = parentContainer.getBoundingClientRect();
+                                                        setHoveredPoint({
+                                                            x: ((rect.left + rect.right) / 2) - parentRect.left,
+                                                            y: rect.top - parentRect.top - 8,
+                                                            value: p.value,
+                                                            type: 'additions',
+                                                            label: svgData.labels[i] || ''
+                                                        });
+                                                    }
+                                                }}
+                                                onMouseLeave={() => setHoveredPoint(null)}
+                                            >
+                                                <circle cx={p.x} cy={p.y} r="4" fill="#10b981" stroke="#0f172a" strokeWidth="1.5" className="transition-all hover:scale-135"></circle>
+                                                <circle cx={p.x} cy={p.y} r="8" fill="#10b981" opacity="0" className="opacity-0 hover:opacity-20 transition-opacity"></circle>
+                                            </g>
+                                        ))}
+
+                                        {/* Circle Dots markers for Deletions */}
+                                        {svgData.deletionPoints.map((p, i) => (
+                                            <g 
+                                                key={`del-g-${i}`} 
+                                                className="cursor-pointer group/dot"
+                                                onMouseEnter={(e) => {
+                                                    const target = e.currentTarget;
+                                                    const rect = target.getBoundingClientRect();
+                                                    const parentContainer = target.closest('.relative');
+                                                    if (parentContainer) {
+                                                        const parentRect = parentContainer.getBoundingClientRect();
+                                                        setHoveredPoint({
+                                                            x: ((rect.left + rect.right) / 2) - parentRect.left,
+                                                            y: rect.top - parentRect.top - 8,
+                                                            value: p.value,
+                                                            type: 'deletions',
+                                                            label: svgData.labels[i] || ''
+                                                        });
+                                                    }
+                                                }}
+                                                onMouseLeave={() => setHoveredPoint(null)}
+                                            >
+                                                <circle cx={p.x} cy={p.y} r="3.5" fill="#ef4444" stroke="#0f172a" strokeWidth="1.5" className="transition-all hover:scale-135"></circle>
+                                                <circle cx={p.x} cy={p.y} r="7.5" fill="#ef4444" opacity="0" className="opacity-0 hover:opacity-20 transition-opacity"></circle>
                                             </g>
                                         ))}
                                     </svg>
+
+                                    {/* Real-time point hover tooltip display */}
+                                    {hoveredPoint && (
+                                        <div 
+                                            className="absolute bg-[#1e293b] border border-outline px-3 py-1.5 rounded-lg shadow-xl text-[11px] font-mono pointer-events-none z-30 animate-in fade-in zoom-in-95 duration-100 flex flex-col gap-0.5 whitespace-nowrap text-on-surface"
+                                            style={{ 
+                                                left: `${hoveredPoint.x}px`, 
+                                                top: `${hoveredPoint.y}px`,
+                                                transform: 'translate(-50%, -105%)' 
+                                            }}
+                                        >
+                                            <span className="text-on-surface-variant font-semibold text-[10px]">{hoveredPoint.label}</span>
+                                            <span className="flex items-center gap-1.5 font-bold">
+                                                <span className={`w-1.5 h-1.5 rounded-full ${hoveredPoint.type === 'additions' ? 'bg-[#10b981]' : 'bg-[#ef4444]'}`} />
+                                                {hoveredPoint.type === 'additions' ? '代码增加:' : '代码移除:'}
+                                                <span className={hoveredPoint.type === 'additions' ? 'text-[#10b981]' : 'text-[#ef4444]'}>
+                                                    {hoveredPoint.type === 'additions' ? '+' : '-'}{hoveredPoint.value.toLocaleString()} 行
+                                                </span>
+                                            </span>
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* X-Axis Month Tags */}
@@ -514,7 +635,7 @@ export const ProjectInsights = () => {
                                     else if (idx === 2) trophy = '🥉';
 
                                     return (
-                                        <li key={c.name} className="flex items-center justify-between p-2.5 hover:bg-surface-container rounded-lg border border-transparent hover:border-outline transition-colors group">
+                                        <li key={c.name} onClick={() => setSelectedContributor(c)} className="flex items-center justify-between p-2.5 hover:bg-surface-container-low rounded-lg border border-transparent hover:border-outline hover:shadow-xs transition-all group cursor-pointer" title="点击查看详细提交历史记录">
                                             <div className="flex items-center gap-3 min-w-0">
                                                 <div className={`w-8.5 h-8.5 rounded-full flex items-center justify-center border font-mono font-bold text-xs shrink-0 shadow-inner ${avatarClass}`}>
                                                     {letter}
@@ -641,6 +762,127 @@ export const ProjectInsights = () => {
                                     )}
                                 </tbody>
                             </table>
+                        </div>
+                    </div>
+                 </div>
+             )}
+
+            {/* Contributor Commits Slide-Over Modal Drawer */}
+            {selectedContributor && (
+                <div className="fixed inset-0 bg-[#020617]/70 backdrop-blur-xs z-50 flex justify-end animate-in fade-in duration-200">
+                    {/* Backdrop Dismiss */}
+                    <div className="absolute inset-0 cursor-pointer animate-none" onClick={() => setSelectedContributor(null)} />
+                    
+                    {/* Drawer Side Panel */}
+                    <div className="relative w-full max-w-md bg-surface-container border-l border-outline/35 h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
+                        {/* Panel Header */}
+                        <div className="px-6 py-5 border-b border-outline-variant/60 flex items-center justify-between bg-surface-container-low shrink-0">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center border border-primary/25 font-bold font-mono text-sm leading-none shrink-0">
+                                    {selectedContributor.name.substring(0, 1).toUpperCase()}
+                                </div>
+                                <div className="min-w-0">
+                                    <h4 className="font-headline-sm text-sm font-bold text-on-surface flex items-center gap-1.5 truncate">
+                                        {selectedContributor.name}
+                                        <span className="text-[10px] bg-primary/15 text-primary border border-primary/20 px-2 py-0.5 rounded-full font-mono font-medium leading-none whitespace-nowrap">
+                                            {selectedContributor.commits} 次提交
+                                        </span>
+                                    </h4>
+                                    <p className="font-body-sm text-[11px] text-on-surface-variant font-mono truncate">
+                                        @{selectedContributor.username} · 项目贡献提交历史
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setSelectedContributor(null)}
+                                className="p-1.5 rounded-full hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors focus:outline-none focus:ring-1 focus:ring-primary/20 cursor-pointer"
+                                aria-label="Close"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-80 hover:opacity-100"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                            </button>
+                        </div>
+
+                        {/* panel scrolling logs */}
+                        <div className="flex-1 overflow-y-auto px-6 py-5 custom-scrollbar space-y-5">
+                            {contributorCommits.length > 0 ? (
+                                <div className="relative border-l border-outline/25 pl-4 ml-2.5 space-y-5 pt-1">
+                                    {contributorCommits.map((cmt) => {
+                                        const cDate = new Date(cmt.authoredDate);
+                                        const timeStr = cDate.toLocaleDateString('zh-CN', {
+                                            year: 'numeric',
+                                            month: 'long',
+                                            day: 'numeric',
+                                            hour: '2-digit',
+                                            minute: '2-digit'
+                                        });
+
+                                        return (
+                                            <div key={cmt.id} className="relative group/item animate-in fade-in duration-150">
+                                                {/* Timeline Marker Dot */}
+                                                <div className="absolute -left-[24.5px] top-1.5 w-4 h-4 bg-surface-container border-2 border-primary rounded-full group-hover/item:scale-115 group-hover/item:bg-primary transition-all flex items-center justify-center shadow-xs">
+                                                    <div className="w-1.5 h-1.5 bg-primary group-hover/item:bg-surface-container rounded-full" />
+                                                </div>
+
+                                                <div className="bg-surface-container-lowest border border-outline-variant/60 rounded-xl p-3.5 shadow-xs hover:border-outline transition-all">
+                                                    <span className="text-[10px] bg-surface-container-low text-on-surface-variant font-mono px-2 py-0.5 rounded font-semibold border border-outline-variant/35 select-none">
+                                                        {cmt.shortId}
+                                                    </span>
+                                                    <h5 className="font-body-md text-xs font-bold text-on-surface mt-2.5 leading-relaxed group-hover/item:text-primary transition-colors">
+                                                        {cmt.title}
+                                                    </h5>
+                                                    
+                                                    {/* stats details */}
+                                                    <div className="flex items-center justify-between mt-3.5 flex-wrap gap-2 text-[10px] font-mono border-t border-outline-variant/30 pt-2.5">
+                                                        <span className="text-on-surface-variant/80">{timeStr}</span>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-[#10b981] font-bold">+{cmt.additions}</span>
+                                                            <span className="text-[#ef4444] font-bold">-{cmt.deletions}</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            ) : isCommitsLoading ? (
+                                <div className="h-64 flex flex-col items-center justify-center gap-3 text-on-surface-variant pt-10">
+                                    <Loader2 size={24} className="animate-spin text-primary" />
+                                    <p className="text-[11px] text-on-surface-variant font-mono">正在敏捷调取提交中...</p>
+                                </div>
+                            ) : commitsError ? (
+                                <div className="py-12 text-center text-error text-[11px] flex flex-col items-center gap-2">
+                                    <span>{commitsError}</span>
+                                    <button 
+                                        onClick={() => fetchContributorCommits(selectedContributor.name, commitsPage, false)}
+                                        className="text-primary hover:underline hover:opacity-85 text-xs font-medium"
+                                    >
+                                        重新尝试加载
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="py-24 text-center text-xs text-on-surface-variant font-mono">
+                                    当前阶段暂无更多记录提交贡献
+                                </div>
+                            )}
+
+                            {/* lazy view more logic */}
+                            {hasMoreCommits && !isCommitsLoading && (
+                                <div className="pt-2 pb-6 text-center">
+                                    <button
+                                        onClick={() => fetchContributorCommits(selectedContributor.name, commitsPage + 1, true)}
+                                        className="inline-flex items-center gap-1.5 px-4.5 py-2.5 bg-surface-container-high hover:bg-surface-container-highest border border-outline text-primary text-xs font-bold rounded-lg transition-colors cursor-pointer focus:outline-none"
+                                    >
+                                        <span>查看更多提交记录</span>
+                                        <ChevronDown size={14} />
+                                    </button>
+                                </div>
+                            )}
+
+                            {isCommitsLoading && contributorCommits.length > 0 && (
+                                <div className="py-4 text-center flex justify-center">
+                                    <Loader2 size={18} className="animate-spin text-primary" />
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>

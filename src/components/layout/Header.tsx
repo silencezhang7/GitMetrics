@@ -31,10 +31,12 @@ export const Header = () => {
                 </div>
 
                 {/* Search Bar */}
-                <div className="relative hidden sm:block ml-4">
-                    <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant" />
-                    <input type="text" placeholder="Search..." className="w-64 bg-surface-container-low border border-outline-variant rounded pl-9 pr-3 py-1.5 font-body-sm text-body-sm text-on-surface focus:outline-none focus:border-on-tertiary-container focus:ring-1 focus:ring-on-tertiary-container transition-all" />
-                </div>
+                {location.pathname !== '/project-insights' && (
+                    <div className="relative hidden sm:block ml-4">
+                        <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant" />
+                        <input type="text" placeholder="Search..." className="w-64 bg-surface-container-low border border-outline-variant rounded pl-9 pr-3 py-1.5 font-body-sm text-body-sm text-on-surface focus:outline-none focus:border-on-tertiary-container focus:ring-1 focus:ring-on-tertiary-container transition-all" />
+                    </div>
+                )}
             </div>
 
             {/* Actions (Right) */}

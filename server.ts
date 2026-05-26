@@ -282,7 +282,7 @@ async function gitlabRequest<T>(endpoint: string): Promise<{ data: T; total?: nu
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = 3001;
 
   // API routes FIRST
   app.get("/api/health", (req, res) => {

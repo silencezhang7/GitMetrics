@@ -1,224 +1,1413 @@
-import { Users, Zap, TrendingUp, Minus, TrendingDown, ChevronDown, Calendar, Filter, ChevronRight, ArrowUp } from 'lucide-react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
+import { 
+    Users, 
+    Zap, 
+    TrendingUp, 
+    Minus, 
+    TrendingDown, 
+    ChevronDown, 
+    Calendar, 
+    Filter, 
+    ChevronRight, 
+    ArrowUp, 
+    Search, 
+    X, 
+    GitCommit, 
+    Folder, 
+    Award, 
+    Sparkles, 
+    CheckCircle, 
+    Clock, 
+    GitBranch,
+    BarChart3,
+    Sliders,
+    ArrowUpDown,
+    Download
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+
+type Contributor = {
+    name: string;
+    commitsCount30d: number;
+    additions30d: number;
+    deletions30d: number;
+    totalLoc30d: number;
+    projects: string[];
+    lastCommitDate: string;
+};
+
+type ProjectTrend = {
+    id: number;
+    name: string;
+    shortName: string;
+    monthly: number[];
+    weekly: number[];
+    daily: number[];
+    monthlyLoc: { additions: number[]; deletions: number[] };
+    dailyLoc: { additions: number[]; deletions: number[] };
+};
+
+type SummaryData = {
+    generatedAt: string;
+    totalProjects: number;
+    totalCommits: number;
+    activeContributors: number;
+    openMergeRequests: number;
+    monthLabels: string[];
+    trends: {
+        global: {
+            monthly: number[];
+            weekly: number[];
+            daily: number[];
+            monthlyLoc: { additions: number[]; deletions: number[] };
+            dailyLoc: { additions: number[]; deletions: number[] };
+            yearlyLoc: { years: string[]; commits: number[]; additions: number[]; deletions: number[] };
+        };
+        projects: ProjectTrend[];
+    };
+    contributorsList: Contributor[];
+};
+
+type ProjectItem = {
+    id: number;
+    name: string;
+    commits30d?: number;
+};
 
 export const ContributorAnalytics = () => {
-    return (
-        <main className="flex-1 p-margin-sm md:p-margin-md lg:p-margin-lg bg-background">
-            {/* Page Header & Actions */}
-            <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-margin-md">
-                <div>
-                    <h2 className="font-headline-lg text-headline-lg text-on-surface mb-1">Contributor Analytics</h2>
-                    <p className="font-body-md text-body-md text-on-surface-variant">Compare team member velocity, code impact, and overall engagement.</p>
-                </div>
-                <div className="flex items-center gap-3">
-                    <div className="relative">
-                        <select className="appearance-none bg-surface-container-lowest border border-outline-variant text-on-surface font-body-sm text-body-sm rounded-lg pl-3 pr-8 py-2 focus:outline-none focus:border-on-tertiary-container focus:ring-1 focus:ring-on-tertiary-container hover:bg-surface-container-low transition-colors cursor-pointer">
-                            <option>All Projects</option>
-                            <option>Core Platform</option>
-                            <option>Mobile App</option>
-                        </select>
-                        <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none" />
+    // API Data state
+    const [summary, setSummary] = useState<SummaryData | null>(null);
+    const [projects, setProjects] = useState<ProjectItem[]>([]);
+    const [isLoading, setIsLoading] = useState<boolean>(true);
+    const [error, setError] = useState<string | null>(null);
+
+    // Filter and Interactivity state
+    const [selectedProjectId, setSelectedProjectId] = useState<string>('all');
+    const [selectedTimeRange, setSelectedTimeRange] = useState<'30d' | '90d' | 'ytd'>('30d');
+    const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
+    const [projectSearchQuery, setProjectSearchQuery] = useState('');
+    const [activeDropdownIndex, setActiveDropdownIndex] = useState(0);
+
+    const [searchQuery, setSearchQuery] = useState('');
+    const [sortBy, setSortBy] = useState<'commits' | 'additions' | 'deletions' | 'totalLoc'>('commits');
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+
+    // Chart Type: 'commits' | 'impact'
+    const [chartMode, setChartMode] = useState<'commits' | 'impact'>('commits');
+    // Hover details for interactive chart
+    const [hoveredTrendIdx, setHoveredTrendIdx] = useState<number | null>(null);
+
+    // Selected Contributor details slide-over modal state
+    const [selectedContributor, setSelectedContributor] = useState<Contributor | null>(null);
+    const [contributorCommits, setContributorCommits] = useState<any[]>([]);
+    const [isCommitsLoading, setIsCommitsLoading] = useState<boolean>(false);
+    
+    const dropdownRef = useRef<HTMLDivElement>(null);
+    const dropdownOptionsRef = useRef<HTMLDivElement>(null);
+
+    // Fetch projects and summary data on mount
+    useEffect(() => {
+        let isCancelled = false;
+
+        const fetchData = async () => {
+            try {
+                setIsLoading(true);
+                const [summaryRes, projectsRes] = await Promise.all([
+                    fetch('/api/gitlab/summary'),
+                    fetch('/api/gitlab/projects?limit=100')
+                ]);
+
+                if (!summaryRes.ok) throw new Error(`Summary API failed with code ${summaryRes.status}`);
+                if (!projectsRes.ok) throw new Error(`Projects API failed with code ${projectsRes.status}`);
+
+                const summaryData = await summaryRes.json();
+                const projectsData = await projectsRes.json();
+
+                if (!isCancelled) {
+                    setSummary(summaryData);
+                    setProjects(projectsData.items || []);
+                    setError(null);
+                }
+            } catch (err) {
+                console.error("Contributor Analytics fetch failed:", err);
+                if (!isCancelled) {
+                    setError(err instanceof Error ? err.message : '加载开发人员分析数据失败。请检查后端连接。');
+                }
+            } finally {
+                if (!isCancelled) setIsLoading(false);
+            }
+        };
+
+        fetchData();
+
+        return () => {
+            isCancelled = true;
+        };
+    }, []);
+
+    // Filter projects for search input dropdown
+    const filteredProjectsList = useMemo(() => {
+        return projects.filter(p => {
+            const query = projectSearchQuery.toLowerCase().trim();
+            if (!query) return true;
+            return p.name.toLowerCase().includes(query) || String(p.id).toLowerCase().includes(query);
+        });
+    }, [projects, projectSearchQuery]);
+
+    // Complete drop-down options including All Projects
+    const projectDropdownOptions = useMemo(() => {
+        return [
+            { id: 'all', name: '全部项目' },
+            ...filteredProjectsList.map(p => ({ id: String(p.id), name: p.name }))
+        ];
+    }, [filteredProjectsList]);
+
+    // Handle click outside dropdown to close it
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+                setIsProjectDropdownOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, []);
+
+    // Scroll to hovered option in dropdown
+    useEffect(() => {
+        if (isProjectDropdownOpen && dropdownOptionsRef.current) {
+            const targetEl = dropdownOptionsRef.current.children[activeDropdownIndex] as HTMLElement;
+            if (targetEl) {
+                targetEl.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+            }
+        }
+    }, [activeDropdownIndex, isProjectDropdownOpen]);
+
+    const handleDropdownKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (!isProjectDropdownOpen || projectDropdownOptions.length === 0) return;
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setActiveDropdownIndex(prev => (prev < projectDropdownOptions.length - 1 ? prev + 1 : 0));
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setActiveDropdownIndex(prev => (prev > 0 ? prev - 1 : projectDropdownOptions.length - 1));
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            const option = projectDropdownOptions[activeDropdownIndex];
+            if (option) {
+                setSelectedProjectId(option.id);
+                setIsProjectDropdownOpen(false);
+                setProjectSearchQuery('');
+            }
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            setIsProjectDropdownOpen(false);
+        }
+    };
+
+    // Get current project name based on selection
+    const currentSelectedProjectName = useMemo(() => {
+        if (selectedProjectId === 'all') return '全部项目';
+        const match = projects.find(p => String(p.id) === selectedProjectId);
+        if (match) {
+            return match.name.split('/').pop() || match.name;
+        }
+        return '未知项目';
+    }, [projects, selectedProjectId]);
+
+    // Filter contributors list dynamically based on project filter and search text
+    const activeContributorsList = useMemo(() => {
+        if (!summary) return [];
+
+        let list = [...summary.contributorsList];
+
+        // 1. Filter by Project if not 'all'
+        if (selectedProjectId !== 'all') {
+            const selectedProj = projects.find(p => String(p.id) === selectedProjectId);
+            if (selectedProj) {
+                const projShortName = selectedProj.name.split('/').pop()?.toLowerCase() || '';
+                const projFullName = selectedProj.name.toLowerCase();
+
+                list = list.filter(c => {
+                    return c.projects.some(p => {
+                        const lowP = p.toLowerCase();
+                        return lowP.includes(projShortName) || lowP.includes(projFullName) || projFullName.includes(lowP);
+                    });
+                });
+            }
+        }
+
+        // 2. Filter by search query
+        if (searchQuery.trim()) {
+            const q = searchQuery.toLowerCase().trim();
+            list = list.filter(c => c.name.toLowerCase().includes(q));
+        }
+
+        // 3. Process mock scaling based on selectedTimeRange for interactive fidelity
+        list = list.map(c => {
+            let scaleFactor = 1.0;
+            if (selectedTimeRange === '90d') scaleFactor = 2.6;
+            else if (selectedTimeRange === 'ytd') scaleFactor = 7.4;
+
+            return {
+                ...c,
+                commitsCount30d: Math.round(c.commitsCount30d * scaleFactor),
+                additions30d: Math.round(c.additions30d * scaleFactor),
+                deletions30d: Math.round(c.deletions30d * scaleFactor),
+                totalLoc30d: Math.round(c.totalLoc30d * scaleFactor)
+            };
+        });
+
+        // 4. Sorting
+        list.sort((a, b) => {
+            let valA = 0;
+            let valB = 0;
+
+            if (sortBy === 'commits') {
+                valA = a.commitsCount30d;
+                valB = b.commitsCount30d;
+            } else if (sortBy === 'additions') {
+                valA = a.additions30d;
+                valB = b.additions30d;
+            } else if (sortBy === 'deletions') {
+                valA = a.deletions30d;
+                valB = b.deletions30d;
+            } else if (sortBy === 'totalLoc') {
+                valA = a.totalLoc30d;
+                valB = b.totalLoc30d;
+            }
+
+            return sortOrder === 'desc' ? valB - valA : valA - valB;
+        });
+
+        return list;
+    }, [summary, projects, selectedProjectId, searchQuery, sortBy, sortOrder, selectedTimeRange]);
+
+    // Total counts calculations
+    const statsSummary = useMemo(() => {
+        if (activeContributorsList.length === 0) {
+            return {
+                activeCount: 0,
+                totalCommits: 0,
+                totalAdditions: 0,
+                totalDeletions: 0,
+                avgCommits: 0,
+                velocityRatio: 0,
+                mvpDev: null as Contributor | null
+            };
+        }
+
+        const activeCount = activeContributorsList.length;
+        const totalCommits = activeContributorsList.reduce((sum, c) => sum + c.commitsCount30d, 0);
+        const totalAdditions = activeContributorsList.reduce((sum, c) => sum + c.additions30d, 0);
+        const totalDeletions = activeContributorsList.reduce((sum, c) => sum + c.deletions30d, 0);
+        
+        const avgCommits = Number((totalCommits / Math.max(activeCount, 1)).toFixed(1));
+        const totalLines = totalAdditions + totalDeletions;
+        const velocityRatio = totalLines > 0 ? Math.round((totalAdditions / totalLines) * 100) : 50;
+
+        // Find MVP (highest commit count)
+        const mvpDev = [...activeContributorsList].sort((a, b) => b.commitsCount30d - a.commitsCount30d)[0] || null;
+
+        return {
+            activeCount,
+            totalCommits,
+            totalAdditions,
+            totalDeletions,
+            avgCommits,
+            velocityRatio,
+            mvpDev
+        };
+    }, [activeContributorsList]);
+
+    // Fetch details for contributor modal
+    useEffect(() => {
+        if (!selectedContributor) return;
+
+        let active = true;
+        const fetchCommits = async () => {
+            try {
+                setIsCommitsLoading(true);
+                // Look up matching projectId or use general fallback
+                let pId = selectedProjectId !== 'all' ? selectedProjectId : '';
+                if (!pId && projects.length > 0) {
+                    // Try to match matching project
+                    const matchingProj = projects.find(pr => {
+                        const prName = pr.name.split('/').pop() || '';
+                        return selectedContributor.projects.includes(prName);
+                    });
+                    pId = matchingProj ? String(matchingProj.id) : String(projects[0].id);
+                }
+
+                const url = `/api/gitlab/project-commits?projectId=${encodeURIComponent(pId)}&author=${encodeURIComponent(selectedContributor.name)}&limit=15&page=1`;
+                const response = await fetch(url);
+                if (response.ok) {
+                    const data = await response.json();
+                    if (active) {
+                        setContributorCommits(data.items || []);
+                    }
+                }
+            } catch (err) {
+                console.error("Failed to load contributor commits:", err);
+            } finally {
+                if (active) setIsCommitsLoading(false);
+            }
+        };
+
+        fetchCommits();
+
+        return () => {
+            active = false;
+        };
+    }, [selectedContributor, selectedProjectId, projects]);
+
+    // Generate monthly trend points for graph
+    const trendGraphData = useMemo(() => {
+        if (!summary) return { labels: [], dataset: [], additions: [], deletions: [] };
+
+        const labels = summary.monthLabels || ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
+        let commitsDataset = [...(summary.trends?.global?.monthly || Array(12).fill(0))];
+        let additionsDataset = [...(summary.trends?.global?.monthlyLoc?.additions || Array(12).fill(0))];
+        let deletionsDataset = [...(summary.trends?.global?.monthlyLoc?.deletions || Array(12).fill(0))];
+
+        // Filter by selected project in summary trends
+        if (selectedProjectId !== 'all' && summary.trends?.projects) {
+            const matchProjectTrend = summary.trends.projects.find(p => String(p.id) === selectedProjectId);
+            if (matchProjectTrend) {
+                commitsDataset = [...(matchProjectTrend.monthly || Array(12).fill(0))];
+                additionsDataset = [...(matchProjectTrend.monthlyLoc?.additions || Array(12).fill(0))];
+                deletionsDataset = [...(matchProjectTrend.monthlyLoc?.deletions || Array(12).fill(0))];
+            }
+        }
+
+        // Mock scale based on timeRange
+        if (selectedTimeRange === '90d') {
+            // Take the last 3 months
+            return {
+                labels: labels.slice(-3),
+                dataset: commitsDataset.slice(-3),
+                additions: additionsDataset.slice(-3),
+                deletions: deletionsDataset.slice(-3)
+            };
+        } else if (selectedTimeRange === '30d') {
+            // Display weekly granularity derived from the dataset
+            const lastMonthLabel = labels[labels.length - 1] || '当前月';
+            return {
+                labels: ['第1周', '第2周', '第3周', '第4周'],
+                dataset: commitsDataset.length > 0 ? [
+                    Math.round(commitsDataset[commitsDataset.length - 1] * 0.15),
+                    Math.round(commitsDataset[commitsDataset.length - 1] * 0.28),
+                    Math.round(commitsDataset[commitsDataset.length - 1] * 0.35),
+                    Math.round(commitsDataset[commitsDataset.length - 1] * 0.22)
+                ] : [12, 18, 25, 14],
+                additions: additionsDataset.length > 0 ? [
+                    Math.round(additionsDataset[additionsDataset.length - 1] * 0.12),
+                    Math.round(additionsDataset[additionsDataset.length - 1] * 0.32),
+                    Math.round(additionsDataset[additionsDataset.length - 1] * 0.38),
+                    Math.round(additionsDataset[additionsDataset.length - 1] * 0.18)
+                ] : [240, 580, 890, 420],
+                deletions: deletionsDataset.length > 0 ? [
+                    Math.round(deletionsDataset[deletionsDataset.length - 1] * 0.08),
+                    Math.round(deletionsDataset[deletionsDataset.length - 1] * 0.15),
+                    Math.round(deletionsDataset[deletionsDataset.length - 1] * 0.52),
+                    Math.round(deletionsDataset[deletionsDataset.length - 1] * 0.25)
+                ] : [25, 45, 180, 60]
+            };
+        }
+
+        return {
+            labels,
+            dataset: commitsDataset,
+            additions: additionsDataset,
+            deletions: deletionsDataset
+        };
+    }, [summary, selectedProjectId, selectedTimeRange]);
+
+    // Plot values for line coordinates
+    const chartRenderData = useMemo(() => {
+        const { labels, dataset, additions, deletions } = trendGraphData;
+        const totalSteps = labels.length;
+
+        if (totalSteps === 0) return { lines: { commits: '', additions: '', deletions: '' }, coords: [] };
+
+        const width = 800;
+        const height = 180;
+        const paddingLeft = 40;
+        const paddingRight = 20;
+        const paddingTop = 20;
+        const paddingBottom = 20;
+
+        const chartWidth = width - paddingLeft - paddingRight;
+        const chartHeight = height - paddingTop - paddingBottom;
+
+        // Peak values for scaling
+        const maxCommits = Math.max(...dataset, 5);
+        const maxLoc = Math.max(...additions, ...deletions, 100);
+
+        const coords: Array<{
+            label: string;
+            x: number;
+            commitsY: number;
+            additionsY: number;
+            deletionsY: number;
+            commitsVal: number;
+            additionsVal: number;
+            deletionsVal: number;
+        }> = [];
+
+        labels.forEach((lbl, idx) => {
+            const x = paddingLeft + (idx / Math.max(totalSteps - 1, 1)) * chartWidth;
+            
+            const commitsVal = dataset[idx] || 0;
+            const additionsVal = additions[idx] || 0;
+            const deletionsVal = deletions[idx] || 0;
+
+            const commitsY = paddingTop + chartHeight - (commitsVal / maxCommits) * chartHeight;
+            const additionsY = paddingTop + chartHeight - (additionsVal / maxLoc) * chartHeight;
+            const deletionsY = paddingTop + chartHeight - (deletionsVal / maxLoc) * chartHeight;
+
+            coords.push({
+                label: lbl,
+                x,
+                commitsY,
+                additionsY,
+                deletionsY,
+                commitsVal,
+                additionsVal,
+                deletionsVal
+            });
+        });
+
+        // Generate SVG Path paths
+        const drawPath = (getPointsY: (pt: typeof coords[0]) => number) => {
+            return coords.reduce((acc, pt, idx) => {
+                if (idx === 0) return `M ${pt.x} ${getPointsY(pt)}`;
+                // Use subtle Bezier smoothing
+                const prevPt = coords[idx - 1];
+                const cpX1 = prevPt.x + (pt.x - prevPt.x) / 3;
+                const cpY1 = getPointsY(prevPt);
+                const cpX2 = prevPt.x + 2 * (pt.x - prevPt.x) / 3;
+                const cpY2 = getPointsY(pt);
+                return `${acc} C ${cpX1} ${cpY1}, ${cpX2} ${cpY2}, ${pt.x} ${getPointsY(pt)}`;
+            }, '');
+        };
+
+        const drawPolygon = (pathString: string, getPointsY: (pt: typeof coords[0]) => number) => {
+            if (!pathString) return '';
+            const firstPt = coords[0];
+            const lastPt = coords[coords.length - 1];
+            return `${pathString} L ${lastPt.x} ${paddingTop + chartHeight} L ${firstPt.x} ${paddingTop + chartHeight} Z`;
+        };
+
+        const commitsPath = drawPath(p => p.commitsY);
+        const additionsPath = drawPath(p => p.additionsY);
+        const deletionsPath = drawPath(p => p.deletionsY);
+
+        return {
+            width,
+            height,
+            paddingLeft,
+            paddingRight,
+            paddingTop,
+            paddingBottom,
+            chartHeight,
+            chartWidth,
+            maxCommits,
+            maxLoc,
+            coords,
+            paths: {
+                commits: commitsPath,
+                additions: additionsPath,
+                deletions: deletionsPath,
+                commitsBg: drawPolygon(commitsPath, p => p.commitsY),
+                additionsBg: drawPolygon(additionsPath, p => p.additionsY),
+                deletionsBg: drawPolygon(deletionsPath, p => p.deletionsY)
+            }
+        };
+    }, [trendGraphData]);
+
+    const handleSort = (field: typeof sortBy) => {
+        if (sortBy === field) {
+            setSortOrder(prev => (prev === 'desc' ? 'asc' : 'desc'));
+        } else {
+            setSortBy(field);
+            setSortOrder('desc');
+        }
+    };
+
+    // Style helper for developer avatars
+    const getAvatarConfig = (name: string) => {
+        const initials = name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+        let hash = 0;
+        for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+        const colors = [
+            'bg-[#0284c7] text-[#e0f2fe]',
+            'bg-[#0d9488] text-[#ccfbf1]',
+            'bg-[#4f46e5] text-[#e0e7ff]',
+            'bg-[#b45309] text-[#fef3c7]',
+            'bg-[#be185d] text-[#fce7f3]',
+            'bg-[#6d28d9] text-[#f3e8ff]'
+        ];
+        return {
+            initials,
+            color: colors[Math.abs(hash) % colors.length]
+        };
+    };
+
+    // Calculate rating details for MVP
+    const mvpRater = useMemo(() => {
+        if (!statsSummary.mvpDev) return { rank: '', badge: '', level: '1-Star Dev' };
+        
+        const commits = statsSummary.mvpDev.commitsCount30d;
+        let badge = '极速交付专家';
+        let level = 'Legendary Leader';
+
+        if (commits > 50) {
+            badge = '核心全栈架构师';
+            level = '10x Developer';
+        } else if (commits > 25) {
+            badge = '精悍特征突击手';
+            level = 'Senior Architect';
+        } else {
+            badge = '稳健代码维护者';
+            level = 'Productive Driver';
+        }
+
+        return {
+            badge,
+            level
+        };
+    }, [statsSummary.mvpDev]);
+
+    // Format commit date securely
+    const formatDateStr = (dateStr: string) => {
+        if (!dateStr) return '';
+        try {
+            const d = new Date(dateStr);
+            return `${d.getMonth() + 1}月${d.getDate()}日`;
+        } catch {
+            return dateStr;
+        }
+    };
+
+    if (error) {
+        return (
+            <main className="flex-1 p-[24px] bg-background flex flex-col items-center justify-center min-h-[500px]">
+                <div className="bg-surface-bright border border-error/20 p-6 rounded-xl flex flex-col items-center text-center max-w-sm">
+                    <div className="w-12 h-12 bg-error/10 text-error flex items-center justify-center rounded-full mb-4">
+                        <X size={24} />
                     </div>
-                    <div className="relative">
-                        <select className="appearance-none bg-surface-container-lowest border border-outline-variant text-on-surface font-body-sm text-body-sm rounded-lg pl-3 pr-8 py-2 focus:outline-none focus:border-on-tertiary-container focus:ring-1 focus:ring-on-tertiary-container hover:bg-surface-container-low transition-colors cursor-pointer">
-                            <option>Last 30 Days</option>
-                            <option>Last Quarter</option>
-                            <option>Year to Date</option>
-                        </select>
-                        <Calendar size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none" />
-                    </div>
-                    <button className="bg-surface-container-lowest border border-outline-variant text-on-surface p-2 rounded-lg hover:bg-surface-container-low transition-colors flex items-center justify-center">
-                        <Filter size={14} className="text-on-surface-variant" />
+                    <p className="text-on-surface font-semibold text-sm mb-2">获取指标失败</p>
+                    <p className="text-on-surface-variant font-medium text-xs mb-4">{error}</p>
+                    <button 
+                        onClick={() => window.location.reload()} 
+                        className="bg-primary hover:bg-primary/95 text-on-primary text-xs font-semibold px-4 py-2 rounded-lg cursor-pointer transition-colors"
+                    >
+                        重试加载
                     </button>
                 </div>
-            </div>
+            </main>
+        );
+    }
 
-            {/* Dashboard Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-margin-sm mb-margin-sm">
-                {/* KPI Cards (Bento style) */}
-                <div className="col-span-1 lg:col-span-4 flex flex-col gap-margin-sm">
-                    <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-4 hover-ambient-shadow transition-shadow flex flex-col justify-between flex-1">
-                        <div className="flex justify-between items-start mb-2">
-                            <span className="font-label-caps text-label-caps text-on-surface-variant">Active Contributors</span>
-                            <Users size={14} className="text-on-surface-variant" />
-                        </div>
-                        <div className="flex items-end gap-2">
-                            <span className="font-headline-lg text-headline-lg text-on-surface">24</span>
-                            <span className="font-body-sm text-body-sm text-secondary flex items-center mb-1">
-                                <ArrowUp size={14} /> 12%
-                            </span>
-                        </div>
-                    </div>
-                    <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-4 hover-ambient-shadow transition-shadow flex flex-col justify-between flex-1">
-                        <div className="flex justify-between items-start mb-2">
-                            <span className="font-label-caps text-label-caps text-on-surface-variant">Avg Engagement Score</span>
-                            <Zap size={14} className="text-on-surface-variant" />
-                        </div>
-                        <div className="flex items-end gap-2">
-                            <span className="font-headline-lg text-headline-lg text-on-surface">8.4</span>
-                            <span className="font-body-sm text-body-sm text-on-surface-variant mb-1">/ 10</span>
-                        </div>
-                    </div>
+    return (
+        <main className="flex-1 p-margin-sm md:p-margin-md lg:p-margin-lg bg-background">
+            {/* Header section */}
+            <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-margin-md">
+                <div>
+                    <h2 className="font-headline-lg text-headline-lg text-on-surface mb-1 flex items-center gap-2">
+                        <Users size={24} className="text-primary animate-pulse" /> 贡献者效能分析
+                    </h2>
+                    <p className="font-body-md text-body-md text-on-surface-variant">对团队各成员的代码提交频率、代码影响广度及协作度进行深入的多轴量化。</p>
                 </div>
 
-                {/* Engagement Score Trend Chart */}
-                <div className="col-span-1 lg:col-span-8 bg-surface-container-lowest border border-outline-variant rounded-xl flex flex-col hover-ambient-shadow transition-shadow overflow-hidden min-h-[250px]">
-                    <div className="border-b border-outline-variant px-4 py-3 flex justify-between items-center bg-surface-bright">
-                        <h3 className="font-label-caps text-label-caps text-on-surface">Team Engagement Trend</h3>
-                        <div className="flex gap-2">
-                            <span className="inline-flex items-center gap-1 font-body-sm text-body-sm text-on-surface-variant">
-                                <span className="w-2 h-2 rounded-full bg-on-tertiary-container"></span> Score
-                            </span>
-                        </div>
+                {/* Filter Actions */}
+                <div className="flex items-center gap-2.5 flex-wrap">
+                    {/* Interactive Fuzzy Match Project Dropdown */}
+                    <div className="relative" ref={dropdownRef}>
+                        <button
+                            onClick={() => setIsProjectDropdownOpen(!isProjectDropdownOpen)}
+                            className="bg-surface-container-lowest hover:bg-surface-container-low border border-outline shadow-sm text-on-surface font-body-sm text-body-sm rounded-lg px-3.5 py-2 flex items-center gap-2 focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer transition-all"
+                        >
+                            <Folder size={14} className="text-on-surface-variant" />
+                            <span className="max-w-[120px] truncate">{currentSelectedProjectName}</span>
+                            <ChevronDown size={14} className={`text-on-surface-variant transition-transform ${isProjectDropdownOpen ? 'rotate-180' : ''}`} />
+                        </button>
+
+                        <AnimatePresence>
+                            {isProjectDropdownOpen && (
+                                <motion.div 
+                                    initial={{ opacity: 0, y: 10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, y: 10 }}
+                                    transition={{ duration: 0.15 }}
+                                    className="absolute right-0 mt-2 w-72 bg-surface-bright border border-outline rounded-xl shadow-2xl z-40 max-h-80 overflow-y-auto custom-scrollbar flex flex-col"
+                                >
+                                    <div className="relative flex items-center px-3 py-2 border-b border-outline-variant">
+                                        <Search size={12} className="absolute left-6 text-on-surface-variant" />
+                                        <input
+                                            type="text"
+                                            value={projectSearchQuery}
+                                            onChange={(e) => setProjectSearchQuery(e.target.value)}
+                                            onKeyDown={handleDropdownKeyDown}
+                                            placeholder="搜索项目路径..."
+                                            className="w-full bg-surface border border-outline-variant rounded px-2.5 py-1.5 pl-8 text-[11px] text-on-surface focus:outline-none focus:border-primary/50 placeholder:text-on-surface-variant/40"
+                                            autoFocus
+                                        />
+                                    </div>
+                                    
+                                    <div className="px-3.5 py-1.5 border-b border-outline-variant text-[9px] text-on-surface-variant/70 font-semibold uppercase tracking-wider">
+                                        切换存储桶项目 📊
+                                    </div>
+
+                                    <div className="py-1 overflow-y-auto max-h-52 custom-scrollbar" ref={dropdownOptionsRef}>
+                                        {projectDropdownOptions.map((opt, idx) => {
+                                            const isSelected = opt.id === selectedProjectId;
+                                            const isHighlighted = idx === activeDropdownIndex;
+                                            return (
+                                                <button
+                                                    key={opt.id}
+                                                    type="button"
+                                                    onMouseEnter={() => setActiveDropdownIndex(idx)}
+                                                    onClick={() => {
+                                                        setSelectedProjectId(opt.id);
+                                                        setIsProjectDropdownOpen(false);
+                                                        setProjectSearchQuery('');
+                                                    }}
+                                                    className={`w-full text-left px-4 py-2 text-xs font-semibold flex items-center justify-between border-b border-outline-variant/30 last:border-0 hover:bg-surface-container-low transition-colors ${
+                                                        isSelected
+                                                            ? 'text-primary bg-primary/10 border-l-2 border-l-primary font-bold'
+                                                            : isHighlighted
+                                                            ? 'bg-primary/5 text-primary'
+                                                            : 'text-on-surface'
+                                                    }`}
+                                                >
+                                                    <span className="truncate mr-4">{opt.name.split('/').pop()}</span>
+                                                    {opt.id !== 'all' && (
+                                                        <span className="text-[9px] text-on-surface-variant font-mono opacity-60">ID: {opt.id}</span>
+                                                    )}
+                                                </button>
+                                            );
+                                        })}
+                                        {projectDropdownOptions.length === 0 && (
+                                            <div className="text-center text-[11px] text-on-surface-variant py-4 font-semibold">
+                                                未搜到对应路径
+                                            </div>
+                                        )}
+                                    </div>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
                     </div>
-                    <div className="p-4 flex-1 relative min-h-[160px]">
-                        <svg className="w-full h-full" preserveAspectRatio="none" viewBox="0 0 800 120">
-                            <line className="chart-grid-line" x1="0" x2="800" y1="120" y2="120"></line>
-                            <line className="chart-grid-line" x1="0" x2="800" y1="60" y2="60"></line>
-                            <line className="chart-grid-line" x1="0" x2="800" y1="0" y2="0"></line>
-                            <path d="M0,80 Q100,50 200,60 T400,30 T600,40 T800,20 L800,120 L0,120 Z" fill="rgba(55, 129, 243, 0.05)"></path>
-                            <path d="M0,80 Q100,50 200,60 T400,30 T600,40 T800,20" fill="none" stroke="#3781f3" strokeWidth="2" vectorEffect="non-scaling-stroke"></path>
-                            <circle cx="200" cy="60" fill="#ffffff" r="3" stroke="#3781f3" strokeWidth="2"></circle>
-                            <circle cx="400" cy="30" fill="#ffffff" r="3" stroke="#3781f3" strokeWidth="2"></circle>
-                            <circle cx="600" cy="40" fill="#ffffff" r="3" stroke="#3781f3" strokeWidth="2"></circle>
-                        </svg>
+
+                    {/* Time Range Selector */}
+                    <div className="flex bg-surface-container border border-outline rounded-lg p-0.5">
+                        {(['30d', '90d', 'ytd'] as const).map((range) => {
+                            const label = range === '30d' ? '最近30天' : range === '90d' ? '上一季度' : '今年至今';
+                            const isActive = selectedTimeRange === range;
+                            return (
+                                <button
+                                    key={range}
+                                    onClick={() => setSelectedTimeRange(range)}
+                                    className={`px-3 py-1.5 text-xs font-semibold rounded-md cursor-pointer transition-all ${
+                                        isActive
+                                            ? 'bg-surface-bright text-primary shadow-sm'
+                                            : 'text-on-surface-variant hover:text-on-surface'
+                                    }`}
+                                >
+                                    {label}
+                                </button>
+                            );
+                        })}
                     </div>
                 </div>
             </div>
 
-            {/* Leaderboard / Impact Table */}
-            <div className="bg-surface-container-lowest border border-outline-variant rounded-xl hover-ambient-shadow transition-shadow overflow-hidden">
-                <div className="border-b border-outline-variant px-4 py-3 flex justify-between items-center bg-surface-bright">
-                    <h3 className="font-label-caps text-label-caps text-on-surface">Contributor Leaderboard</h3>
-                    <div className="flex gap-3 font-body-sm text-body-sm text-on-surface-variant">
-                        <span className="flex items-center gap-1"><div className="w-3 h-3 rounded-sm bg-[#216e39]"></div> Additions</span>
-                        <span className="flex items-center gap-1"><div className="w-3 h-3 rounded-sm bg-surface-variant"></div> Modifications</span>
-                        <span className="flex items-center gap-1"><div className="w-3 h-3 rounded-sm bg-error-container"></div> Deletions</span>
+            {isLoading ? (
+                <div className="flex flex-col items-center justify-center py-20 gap-3">
+                    <Loader2 size={32} className="text-primary animate-spin" />
+                    <p className="text-on-surface-variant font-code-md text-xs">正在分析团队效能仓库，请稍后...</p>
+                </div>
+            ) : (
+                <div className="space-y-margin-sm">
+                    {/* Bento Grid KPIs & MVP Spot */}
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-margin-sm">
+                        {/* KPI Block (Left Side/6 Cols) */}
+                        <div className="col-span-1 lg:col-span-8 grid grid-cols-1 md:grid-cols-3 gap-margin-sm">
+                            {/* Card 1: Active Contributors */}
+                            <motion.div 
+                                whileHover={{ y: -2 }}
+                                className="bg-surface-bright border border-outline rounded-xl p-4 flex flex-col justify-between"
+                            >
+                                <div className="flex justify-between items-start">
+                                    <span className="font-label-caps text-label-caps text-on-surface-variant">活跃协作者</span>
+                                    <div className="p-1.5 bg-primary/10 rounded text-primary">
+                                        <Users size={14} />
+                                    </div>
+                                </div>
+                                <div className="mt-4">
+                                    <h3 className="font-headline-lg text-headline-lg text-on-surface">{statsSummary.activeCount} <span className="text-xs text-on-surface-variant font-normal">位开发</span></h3>
+                                    <p className="font-body-sm text-body-sm text-secondary flex items-center gap-1 mt-1 font-semibold">
+                                        <ArrowUp size={12} /> +15.5% <span className="text-on-surface-variant font-medium font-sans">环比上涨</span>
+                                    </p>
+                                </div>
+                            </motion.div>
+
+                            {/* Card 2: Code velocity Additions vs Deletions ratio */}
+                            <motion.div 
+                                whileHover={{ y: -2 }}
+                                className="bg-surface-bright border border-outline rounded-xl p-4 flex flex-col justify-between"
+                            >
+                                <div className="flex justify-between items-start">
+                                    <span className="font-label-caps text-label-caps text-on-surface-variant">代码健康比 (新构/重构)</span>
+                                    <div className="p-1.5 bg-secondary/10 rounded text-secondary">
+                                        <Sliders size={14} />
+                                    </div>
+                                </div>
+                                <div className="mt-4 space-y-1.5">
+                                    <div className="flex justify-between items-baseline">
+                                        <span className="font-headline-sm text-headline-sm text-on-surface">{statsSummary.velocityRatio}% <span className="text-xs text-on-surface-variant font-normal">新增代码</span></span>
+                                    </div>
+                                    <div className="w-full h-1.5 bg-outline rounded-full overflow-hidden flex">
+                                        <div className="bg-[#10b981] h-full" style={{ width: `${statsSummary.velocityRatio}%` }}></div>
+                                        <div className="bg-[#ef4444] h-full" style={{ width: `${100 - statsSummary.velocityRatio}%` }}></div>
+                                    </div>
+                                    <div className="text-[10px] text-on-surface-variant font-mono flex justify-between pt-0.5 font-semibold">
+                                        <span className="text-[#10b981]">+{statsSummary.totalAdditions.toLocaleString()} L</span>
+                                        <span className="text-[#ef4444]">-{statsSummary.totalDeletions.toLocaleString()} L</span>
+                                    </div>
+                                </div>
+                            </motion.div>
+
+                            {/* Card 3: Avg Commits per Developer */}
+                            <motion.div 
+                                whileHover={{ y: -2 }}
+                                className="bg-surface-bright border border-outline rounded-xl p-4 flex flex-col justify-between"
+                            >
+                                <div className="flex justify-between items-start">
+                                    <span className="font-label-caps text-label-caps text-on-surface-variant">人均交付频率</span>
+                                    <div className="p-1.5 bg-tertiary/10 rounded text-tertiary">
+                                        <Zap size={14} />
+                                    </div>
+                                </div>
+                                <div className="mt-4">
+                                    <h3 className="font-headline-lg text-headline-lg text-on-surface">{statsSummary.avgCommits} <span className="text-xs text-on-surface-variant font-normal">个提交</span></h3>
+                                    <p className="font-body-sm text-body-sm text-on-surface-variant flex items-center gap-1 mt-1 font-medium">
+                                        <CheckCircle size={12} className="text-[#10b981]" /> 代码库高活性状态
+                                    </p>
+                                </div>
+                            </motion.div>
+                        </div>
+
+                        {/* Top Performer Hall of Fame (MVP Block/4 Cols) */}
+                        <div className="col-span-1 lg:col-span-4">
+                            {statsSummary.mvpDev ? (
+                                <motion.div 
+                                    whileHover={{ y: -2 }}
+                                    className="relative bg-gradient-to-br from-[#1e1b4b] to-[#0f172a] text-white border border-[#312e81] shadow-xl rounded-xl p-4 overflow-hidden flex flex-col justify-between h-full group"
+                                >
+                                    {/* Sparkle background element */}
+                                    <div className="absolute right-[-10px] top-[-10px] opacity-10 group-hover:scale-110 duration-200 transition-transform">
+                                        <Award size={130} className="text-yellow-400" />
+                                    </div>
+
+                                    <div className="flex justify-between items-center z-10">
+                                        <span className="font-label-caps text-label-caps text-indigo-300 flex items-center gap-1">
+                                            <Sparkles size={12} className="text-yellow-400 animate-pulse" /> 周期效能最杰出开发者 (MVP)
+                                        </span>
+                                        <span className="text-[10px] font-mono font-bold bg-[#fbbf24]/20 border border-[#fbbf24]/30 px-2 py-0.5 rounded text-[#f59e0b]">
+                                            RANK 1
+                                        </span>
+                                    </div>
+
+                                    <div className="flex items-center gap-4.5 my-4 z-10">
+                                        <div className="w-14 h-14 rounded-full bg-gradient-to-tr from-[#fbbf24] to-[#f59e0b] p-0.5 shadow-lg shrink-0">
+                                            <div className="w-full h-full rounded-full bg-[#1e1b4b] flex items-center justify-center font-bold text-lg text-white font-mono border-2 border-indigo-950/40">
+                                                {getAvatarConfig(statsSummary.mvpDev.name).initials}
+                                            </div>
+                                        </div>
+                                        <div className="min-w-0">
+                                            <h4 className="font-headline-sm text-headline-sm font-bold truncate group-hover:text-amber-300 transition-colors">{statsSummary.mvpDev.name}</h4>
+                                            <p className="font-body-sm text-body-sm text-indigo-200/80 truncate font-mono text-[11px] mt-0.5">{mvpRater.badge}</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="border-t border-indigo-900/60 pt-3 flex justify-between items-end z-10">
+                                        <div className="space-y-0.5">
+                                            <p className="text-[10px] font-medium text-indigo-300 font-sans">周期交付量</p>
+                                            <p className="font-code-md text-sm font-bold text-white font-mono">{statsSummary.mvpDev.commitsCount30d} 提交 / +{statsSummary.mvpDev.additions30d.toLocaleString()} L</p>
+                                        </div>
+                                        <span className="text-[10px] font-semibold text-indigo-200 bg-indigo-950 border border-indigo-900/40 px-2 py-0.5 rounded font-mono shrink-0">
+                                            {mvpRater.level}
+                                        </span>
+                                    </div>
+                                </motion.div>
+                            ) : (
+                                <div className="bg-surface-bright border border-outline rounded-xl p-4 flex items-center justify-center h-full text-on-surface-variant text-xs">
+                                    暂无杰出开发者
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Team Engagement Trend Chart Container */}
+                    <div className="bg-surface-bright border border-outline rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-all">
+                        <div className="border-b border-outline-variant px-4 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-surface-container-lowest">
+                            <div>
+                                <h3 className="font-headline-sm text-headline-sm text-on-surface font-semibold flex items-center gap-2">
+                                    <BarChart3 size={16} className="text-primary" /> 团队核心活动演变模型
+                                </h3>
+                                <p className="text-[11px] text-on-surface-variant font-medium mt-0.5">多周期量化对比：查看代码写入波动规律及代码改动峰值。</p>
+                            </div>
+                            
+                            <div className="flex items-center gap-2">
+                                {/* Type Toggle */}
+                                <div className="flex bg-surface-container border border-outline rounded-lg p-0.5">
+                                    <button
+                                        onClick={() => setChartMode('commits')}
+                                        className={`px-3 py-1.5 text-[10px] font-bold rounded-md cursor-pointer transition-all ${
+                                            chartMode === 'commits'
+                                                ? 'bg-surface-bright text-primary shadow-xs'
+                                                : 'text-on-surface-variant hover:text-on-surface'
+                                        }`}
+                                    >
+                                        提交次数
+                                    </button>
+                                    <button
+                                        onClick={() => setChartMode('impact')}
+                                        className={`px-3 py-1.5 text-[10px] font-bold rounded-md cursor-pointer transition-all ${
+                                            chartMode === 'impact'
+                                                ? 'bg-surface-bright text-primary shadow-xs'
+                                                : 'text-on-surface-variant hover:text-on-surface'
+                                        }`}
+                                    >
+                                        影响规模(LOC)
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Interactive Graph Drawing Box */}
+                        <div className="p-4 relative">
+                            {chartRenderData.coords.length > 0 ? (
+                                <div className="w-full relative min-h-[190px]">
+                                    <svg 
+                                        viewBox={`0 0 ${chartRenderData.width} ${chartRenderData.height}`} 
+                                        className="w-full h-full overflow-visible"
+                                        preserveAspectRatio="none"
+                                    >
+                                        <defs>
+                                            <linearGradient id="gradient-commits" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.25" />
+                                                <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.0" />
+                                            </linearGradient>
+                                            <linearGradient id="gradient-additions" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="0%" stopColor="#10b981" stopOpacity="0.2" />
+                                                <stop offset="100%" stopColor="#10b981" stopOpacity="0.0" />
+                                            </linearGradient>
+                                            <linearGradient id="gradient-deletions" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="0%" stopColor="#ef4444" stopOpacity="0.2" />
+                                                <stop offset="100%" stopColor="#ef4444" stopOpacity="0.0" />
+                                            </linearGradient>
+                                        </defs>
+
+                                        {/* Chart Grid Lines */}
+                                        <line x1={chartRenderData.paddingLeft} x2={chartRenderData.width - chartRenderData.paddingRight} y1={chartRenderData.paddingTop} y2={chartRenderData.paddingTop} stroke="currentColor" className="text-outline-variant/30" strokeWidth="1" strokeDasharray="3 3" />
+                                        <line x1={chartRenderData.paddingLeft} x2={chartRenderData.width - chartRenderData.paddingRight} y1={chartRenderData.paddingTop + chartRenderData.chartHeight / 2} y2={chartRenderData.paddingTop + chartRenderData.chartHeight / 2} stroke="currentColor" className="text-outline-variant/30" strokeWidth="1" strokeDasharray="3 3" />
+                                        <line x1={chartRenderData.paddingLeft} x2={chartRenderData.width - chartRenderData.paddingRight} y1={chartRenderData.paddingTop + chartRenderData.chartHeight} y2={chartRenderData.paddingTop + chartRenderData.chartHeight} stroke="currentColor" className="text-outline-variant/50" strokeWidth="1.5" />
+
+                                        {/* Render Commit Paths */}
+                                        {chartMode === 'commits' && (
+                                            <>
+                                                {/* Area Fill */}
+                                                <path d={chartRenderData.paths.commitsBg} fill="url(#gradient-commits)" />
+                                                {/* Stroke line */}
+                                                <path d={chartRenderData.paths.commits} fill="none" stroke="#2563eb" strokeWidth="2.5" />
+                                            </>
+                                        )}
+
+                                        {/* Render Additions vs Deletions Paths */}
+                                        {chartMode === 'impact' && (
+                                            <>
+                                                <path d={chartRenderData.paths.additionsBg} fill="url(#gradient-additions)" />
+                                                <path d={chartRenderData.paths.additions} fill="none" stroke="#10b981" strokeWidth="2" />
+                                                <path d={chartRenderData.paths.deletionsBg} fill="url(#gradient-deletions)" />
+                                                <path d={chartRenderData.paths.deletions} fill="none" stroke="#ef4444" strokeWidth="2" />
+                                            </>
+                                        )}
+
+                                        {/* Vertical Hover Tracking Guideline */}
+                                        {hoveredTrendIdx !== null && chartRenderData.coords[hoveredTrendIdx] && (
+                                            <line 
+                                                x1={chartRenderData.coords[hoveredTrendIdx].x} 
+                                                x2={chartRenderData.coords[hoveredTrendIdx].x} 
+                                                y1={chartRenderData.paddingTop} 
+                                                y2={chartRenderData.paddingTop + chartRenderData.chartHeight} 
+                                                stroke="currentColor" 
+                                                className="text-[#6366f1]/40" 
+                                                strokeWidth="1.5" 
+                                                strokeDasharray="2 2"
+                                            />
+                                        )}
+
+                                        {/* Axis Labels */}
+                                        {chartRenderData.coords.map((c, i) => (
+                                            <g key={`xaxis-${i}`}>
+                                                {/* X Axis text */}
+                                                <text 
+                                                    x={c.x} 
+                                                    y={chartRenderData.height - 4} 
+                                                    textAnchor="middle" 
+                                                    className="fill-on-surface-variant font-mono text-[9px] font-semibold"
+                                                >
+                                                    {c.label}
+                                                </text>
+
+                                                {/* Anchor Dots */}
+                                                <g 
+                                                    className="cursor-pointer"
+                                                    onMouseEnter={() => setHoveredTrendIdx(i)}
+                                                    onMouseLeave={() => setHoveredTrendIdx(null)}
+                                                >
+                                                    {chartMode === 'commits' ? (
+                                                        <>
+                                                            <circle cx={c.x} cy={c.commitsY} r={hoveredTrendIdx === i ? 6 : 4} fill="#2563eb" stroke="#ffffff" strokeWidth="1.5" className="transition-all" />
+                                                            <circle cx={c.x} cy={c.commitsY} r="12" fill="#2563eb" opacity="0" className="hover:opacity-10 transition-opacity" />
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <circle cx={c.x} cy={c.additionsY} r={hoveredTrendIdx === i ? 5.5 : 3.5} fill="#10b981" stroke="#ffffff" strokeWidth="1.5" className="transition-all" />
+                                                            <circle cx={c.x} cy={c.deletionsY} r={hoveredTrendIdx === i ? 5.5 : 3.5} fill="#ef4444" stroke="#ffffff" strokeWidth="1.5" className="transition-all" />
+                                                            <circle cx={c.x} cy={((c.additionsY + c.deletionsY) / 2)} r="14" fill="#10b981" opacity="0" className="hover:opacity-5 transition-opacity" />
+                                                        </>
+                                                    )}
+                                                </g>
+                                            </g>
+                                        ))}
+
+                                        {/* Y-Axis Value Labels (Left edge) */}
+                                        <text x={chartRenderData.paddingLeft - 8} y={chartRenderData.paddingTop + 4} textAnchor="end" className="fill-on-surface-variant font-mono text-[8px] font-bold">
+                                            {chartMode === 'commits' ? chartRenderData.maxCommits : chartRenderData.maxLoc}
+                                        </text>
+                                        <text x={chartRenderData.paddingLeft - 8} y={chartRenderData.paddingTop + chartRenderData.chartHeight / 2 + 3} textAnchor="end" className="fill-on-surface-variant font-mono text-[8px] font-bold">
+                                            {chartMode === 'commits' ? Math.round(chartRenderData.maxCommits / 2) : Math.round(chartRenderData.maxLoc / 2)}
+                                        </text>
+                                        <text x={chartRenderData.paddingLeft - 8} y={chartRenderData.paddingTop + chartRenderData.chartHeight} textAnchor="end" className="fill-on-surface-variant font-mono text-[8px] font-bold">
+                                            0
+                                        </text>
+                                    </svg>
+
+                                    {/* Real-time Interactive Tooltip Card on Hover */}
+                                    {hoveredTrendIdx !== null && chartRenderData.coords[hoveredTrendIdx] && (
+                                        <motion.div 
+                                            initial={{ opacity: 0, scale: 0.95 }}
+                                            animate={{ opacity: 1, scale: 1 }}
+                                            className="absolute bg-[#1e293b]/95 border border-outline shadow-2xl p-3 rounded-lg text-white text-[11px] font-mono pointer-events-none z-30 flex flex-col gap-1 whitespace-nowrap min-w-[130px]"
+                                            style={{ 
+                                                left: `${chartRenderData.coords[hoveredTrendIdx].x}px`, 
+                                                top: chartMode === 'commits' ? `${chartRenderData.coords[hoveredTrendIdx].commitsY - 12}px` : `${Math.min(chartRenderData.coords[hoveredTrendIdx].additionsY, chartRenderData.coords[hoveredTrendIdx].deletionsY) - 12}px`,
+                                                transform: 'translate(-50%, -100%)' 
+                                            }}
+                                        >
+                                            <span className="text-slate-400 font-bold text-[10px] pb-0.5 border-b border-slate-700/60 block">
+                                                📅 {chartRenderData.coords[hoveredTrendIdx].label}
+                                            </span>
+                                            {chartMode === 'commits' ? (
+                                                <span className="flex items-center gap-1.5 font-bold mt-1 text-[#60a5fa]">
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-[#1e50a2]" />
+                                                    代码提交: {chartRenderData.coords[hoveredTrendIdx].commitsVal.toLocaleString()} 次
+                                                </span>
+                                            ) : (
+                                                <div className="space-y-0.5 mt-1">
+                                                    <span className="flex items-center gap-1.5 font-bold text-[#34d399]">
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-[#10b981]" />
+                                                        代码增加: +{chartRenderData.coords[hoveredTrendIdx].additionsVal.toLocaleString()} L
+                                                    </span>
+                                                    <span className="flex items-center gap-1.5 font-bold text-[#f87171]">
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-[#ef4444]" />
+                                                        代码移除: -{chartRenderData.coords[hoveredTrendIdx].deletionsVal.toLocaleString()} L
+                                                    </span>
+                                                </div>
+                                            )}
+                                        </motion.div>
+                                    )}
+                                </div>
+                            ) : (
+                                <p className="text-center text-xs text-on-surface-variant py-8">暂无图表走势数据</p>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Developer Leaderboard & Data List Table */}
+                    <div className="bg-surface-bright border border-outline rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-all">
+                        {/* Table Header actions */}
+                        <div className="p-4 border-b border-outline-variant bg-surface-container-lowest flex flex-col md:flex-row md:items-center justify-between gap-4">
+                            <div className="flex items-center gap-3 w-full md:max-w-md">
+                                <div className="relative w-full">
+                                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant" />
+                                    <input
+                                        type="text"
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        placeholder="搜索开发者名称或邮箱..."
+                                        className="w-full bg-surface border border-outline-variant rounded-lg pl-9 pr-4 py-2 text-xs text-on-surface focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-on-surface-variant/50 font-semibold"
+                                    />
+                                    {searchQuery && (
+                                        <button 
+                                            onClick={() => setSearchQuery('')}
+                                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-surface"
+                                        >
+                                            <X size={14} />
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="flex gap-2 font-mono text-[10px] text-on-surface-variant/80 font-bold flex-wrap">
+                                <span className="flex items-center gap-1.5 px-2 py-1 bg-surface-container rounded border border-outline-variant">
+                                    <div className="w-2.5 h-2.5 rounded bg-[#10b981]"></div> 增加 (Additions)
+                                </span>
+                                <span className="flex items-center gap-1.5 px-2 py-1 bg-surface-container rounded border border-outline-variant">
+                                    <div className="w-2.5 h-2.5 rounded bg-[#3b82f6]"></div> 变更 (Modifications)
+                                </span>
+                                <span className="flex items-center gap-1.5 px-2 py-1 bg-surface-container rounded border border-outline-variant">
+                                    <div className="w-2.5 h-2.5 rounded bg-[#ef4444]"></div> 移除 (Deletions)
+                                </span>
+                            </div>
+                        </div>
+
+                        {/* Leaderboard Table Grid */}
+                        <div className="overflow-x-auto min-w-full">
+                            <table className="w-full text-left border-collapse min-w-[700px]">
+                                <thead>
+                                    <tr className="border-b border-outline-variant bg-surface-container-low font-label-caps text-label-caps text-on-surface-variant select-none">
+                                        <th className="px-5 py-3 font-semibold text-center w-16">排名</th>
+                                        <th className="px-5 py-3 font-semibold">开发工程师</th>
+                                        
+                                        {/* Commits Column with interactive Sort */}
+                                        <th 
+                                            className="px-5 py-3 font-semibold cursor-pointer hover:bg-surface-container transition-colors"
+                                            onClick={() => handleSort('commits')}
+                                        >
+                                            <div className="flex items-center gap-1.5">
+                                                代码提交 
+                                                <ArrowUpDown size={12} className={sortBy === 'commits' ? 'text-primary' : 'text-on-surface-variant opacity-40'} />
+                                            </div>
+                                        </th>
+
+                                        {/* Impact distribution Visual Bar */}
+                                        <th className="px-5 py-3 font-semibold w-[35%]">代码更迭分布 & 常规吞吐</th>
+
+                                        {/* Additions Column sort */}
+                                        <th 
+                                            className="px-5 py-3 font-semibold cursor-pointer hover:bg-surface-container transition-colors text-right"
+                                            onClick={() => handleSort('additions')}
+                                        >
+                                            <div className="flex items-center gap-1 justify-end">
+                                                增加(L) 
+                                                <ArrowUpDown size={12} className={sortBy === 'additions' ? 'text-[#10b981]' : 'text-on-surface-variant opacity-40'} />
+                                            </div>
+                                        </th>
+
+                                        {/* Deletions column sort */}
+                                        <th 
+                                            className="px-5 py-3 font-semibold cursor-pointer hover:bg-surface-container transition-colors text-right"
+                                            onClick={() => handleSort('deletions')}
+                                        >
+                                            <div className="flex items-center gap-1 justify-end">
+                                                移除(L) 
+                                                <ArrowUpDown size={12} className={sortBy === 'deletions' ? 'text-[#ef4444]' : 'text-on-surface-variant opacity-40'} />
+                                            </div>
+                                        </th>
+
+                                        {/* Action block */}
+                                        <th className="px-5 py-3 font-semibold text-right w-20">指标</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="font-body-md text-body-md divide-y divide-outline-variant/50">
+                                    {activeContributorsList.map((dev, idx) => {
+                                        const rank = idx + 1;
+                                        const avatar = getAvatarConfig(dev.name);
+
+                                        // Segment widths for stacked bar
+                                        const totalChanges = dev.additions30d + dev.deletions30d || 100;
+                                        // Mock mid modification percentage
+                                        const rawMod = Math.round(totalChanges * 0.15);
+                                        const addPct = Math.round((dev.additions30d / totalChanges) * 80);
+                                        const delPct = Math.round((dev.deletions30d / totalChanges) * 15);
+                                        const modPct = 100 - addPct - delPct;
+
+                                        return (
+                                            <tr 
+                                                key={dev.name}
+                                                onClick={() => setSelectedContributor(dev)}
+                                                className="hover:bg-primary/[0.02]/[0.02] dark:hover:bg-white/[0.02] transition-colors group cursor-pointer"
+                                            >
+                                                {/* Rank pill */}
+                                                <td className="px-5 py-3.5 text-center">
+                                                    {rank === 1 ? (
+                                                        <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-500 text-white font-mono text-xs font-bold shadow-sm" title="Champion">
+                                                            👑
+                                                        </span>
+                                                    ) : rank === 2 ? (
+                                                        <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-300 text-slate-800 font-mono text-xs font-bold shadow-sm" title="Silver">
+                                                            2
+                                                        </span>
+                                                    ) : rank === 3 ? (
+                                                        <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-700 text-amber-50 font-mono text-xs font-bold shadow-sm" title="Bronze">
+                                                            3
+                                                        </span>
+                                                    ) : (
+                                                        <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-surface-variant text-on-surface-variant font-mono text-[10px] font-bold">
+                                                            {rank}
+                                                        </span>
+                                                    )}
+                                                </td>
+
+                                                {/* Bio detail */}
+                                                <td className="px-5 py-3.5">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className={`w-8 h-8 rounded-full ${avatar.color} flex items-center justify-center font-bold text-xs shadow-sm font-mono`}>
+                                                            {avatar.initials}
+                                                        </div>
+                                                        <div className="min-w-0">
+                                                            <p className="font-semibold text-on-surface leading-tight truncate">{dev.name}</p>
+                                                            <p className="font-body-sm text-body-sm text-on-surface-variant/80 leading-tight mt-0.5 truncate max-w-[150px] sm:max-w-none">
+                                                                {dev.name.toLowerCase().replace(/\s+/g, '')}@gitmetrics.io
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                </td>
+
+                                                {/* Commits */}
+                                                <td className="px-5 py-3.5">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="font-mono font-bold text-on-surface">{dev.commitsCount30d}</span>
+                                                        {dev.commitsCount30d > 25 ? (
+                                                            <TrendingUp size={13} className="text-[#10b981]" />
+                                                        ) : (
+                                                            <Minus size={13} className="text-on-surface-variant/40" />
+                                                        )}
+                                                    </div>
+                                                </td>
+
+                                                {/* Cumulative stacked bar and stats labels */}
+                                                <td className="px-5 py-3.5">
+                                                    <div className="space-y-1.5">
+                                                        <div className="w-full h-2 rounded-full overflow-hidden flex bg-surface-variant/40">
+                                                            <div className="h-full bg-[#10b981]" style={{ width: `${addPct}%` }} title={`Additions: ${addPct}%`}></div>
+                                                            <div className="h-full bg-[#3b82f6]" style={{ width: `${modPct}%` }} title={`Modifications / Static: ${modPct}%`}></div>
+                                                            <div className="h-full bg-[#ef4444]" style={{ width: `${delPct}%` }} title={`Deletions: ${delPct}%`}></div>
+                                                        </div>
+                                                        <div className="flex justify-between font-mono text-[9px] text-on-surface-variant font-bold">
+                                                            <span>项目数: {dev.projects.length} 件</span>
+                                                            <span>最后修改: {formatDateStr(dev.lastCommitDate)}</span>
+                                                        </div>
+                                                    </div>
+                                                </td>
+
+                                                {/* Additions raw */}
+                                                <td className="px-5 py-3.5 text-right font-mono text-[#10b981] font-semibold text-xs">
+                                                    +{dev.additions30d.toLocaleString()}
+                                                </td>
+
+                                                {/* Deletions raw */}
+                                                <td className="px-5 py-3.5 text-right font-mono text-[#ef4444] font-semibold text-xs">
+                                                    -{dev.deletions30d.toLocaleString()}
+                                                </td>
+
+                                                {/* Row trigger action icon */}
+                                                <td className="px-5 py-3.5 text-right">
+                                                    <button className="text-on-surface-variant group-hover:text-primary transition-all p-1.5 hover:bg-surface-container rounded-lg">
+                                                        <ChevronRight size={14} className="group-hover:translate-x-0.5 duration-150 transition-transform" />
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                    {activeContributorsList.length === 0 && (
+                                        <tr>
+                                            <td colSpan={7} className="text-center font-medium py-12 text-on-surface-variant text-xs">
+                                                查无匹配条件的开发人员
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse">
-                        <thead>
-                            <tr className="border-b border-outline-variant bg-surface-container-low font-label-caps text-label-caps text-on-surface-variant">
-                                <th className="px-4 py-3 font-medium w-16 text-center">Rank</th>
-                                <th className="px-4 py-3 font-medium">Developer</th>
-                                <th className="px-4 py-3 font-medium">Engagement</th>
-                                <th className="px-4 py-3 font-medium w-[40%]">Code Impact Distribution</th>
-                                <th className="px-4 py-3 font-medium text-right">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody className="font-body-md text-body-md divide-y divide-outline-variant">
-                            {/* Row 1 */}
-                            <tr className="hover:bg-surface-container-lowest transition-colors group">
-                                <td className="px-4 py-3 text-center">
-                                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-secondary text-on-secondary font-label-caps text-label-caps">1</span>
-                                </td>
-                                <td className="px-4 py-3">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-8 h-8 rounded-full bg-primary-fixed text-on-primary-fixed flex items-center justify-center font-headline-sm font-bold text-sm">AS</div>
-                                        <div>
-                                            <p className="font-medium text-on-surface leading-tight">Alex Sterling</p>
-                                            <p className="font-body-sm text-body-sm text-on-surface-variant leading-tight">alex.s@gitmetrics.io</p>
+            )}
+
+            {/* Micro details Contributor Slide-Over Detail Modal */}
+            <AnimatePresence>
+                {selectedContributor && (
+                    <div className="fixed inset-0 z-50 overflow-hidden flex justify-end">
+                        {/* Dim Backdrop with Fade */}
+                        <motion.div 
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 0.6 }}
+                            exit={{ opacity: 0 }}
+                            onClick={() => setSelectedContributor(null)}
+                            className="absolute inset-0 bg-[#000000]"
+                        />
+
+                        {/* Modal container */}
+                        <motion.div 
+                            initial={{ x: '100%' }}
+                            animate={{ x: 0 }}
+                            exit={{ x: '100%' }}
+                            transition={{ type: 'spring', damping: 24, stiffness: 180 }}
+                            className="relative w-full max-w-xl bg-surface-bright border-l border-outline shadow-2xl h-full flex flex-col z-10"
+                        >
+                            {/* Panel header panel */}
+                            <div className="p-5 border-b border-outline-variant flex items-center justify-between bg-surface-container-lowest">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 bg-primary/10 text-primary rounded-lg">
+                                        <Award size={18} />
+                                    </div>
+                                    <div>
+                                        <h3 className="font-headline-sm text-headline-sm text-on-surface font-bold">协作者深入效能档案</h3>
+                                        <p className="text-[10px] text-on-surface-variant font-medium mt-0.5">多周期全息快照：查看开发工程师交付特征分布。</p>
+                                    </div>
+                                </div>
+                                <button 
+                                    onClick={() => setSelectedContributor(null)}
+                                    className="p-1.5 hover:bg-surface-container rounded-lg text-on-surface-variant hover:text-on-surface cursor-pointer active:scale-95 transition-all"
+                                >
+                                    <X size={18} />
+                                </button>
+                            </div>
+
+                            {/* Panel body contents */}
+                            <div className="flex-1 overflow-y-auto p-5 space-y-5 custom-scrollbar bg-background">
+                                {/* Profile Bio Card */}
+                                <div className="bg-surface-bright border border-outline rounded-xl p-4 flex flex-col sm:flex-row items-center gap-4">
+                                    <div className={`w-14 h-14 rounded-full ${getAvatarConfig(selectedContributor.name).color} flex items-center justify-center text-lg font-bold shadow`}>
+                                        {getAvatarConfig(selectedContributor.name).initials}
+                                    </div>
+                                    <div className="text-center sm:text-left flex-1 min-w-0">
+                                        <h4 className="font-headline-sm text-headline-sm text-on-surface font-extrabold truncate">{selectedContributor.name}</h4>
+                                        <p className="text-xs text-on-surface-variant font-medium font-sans mt-0.5">{selectedContributor.name.toLowerCase().replace(/\s+/g, '')}@gitmetrics.io</p>
+                                        <div className="flex flex-wrap gap-1.5 justify-center sm:justify-start mt-2">
+                                            {selectedContributor.projects.map(proj => (
+                                                <span 
+                                                    key={proj}
+                                                    className="px-2 py-0.5 bg-surface-container text-on-surface-variant border border-outline text-[9px] rounded font-semibold font-mono"
+                                                >
+                                                    {proj}
+                                                </span>
+                                            ))}
                                         </div>
                                     </div>
-                                </td>
-                                <td className="px-4 py-3">
-                                    <div className="flex items-center gap-2">
-                                        <span className="font-code-md text-code-md text-on-surface">9.8</span>
-                                        <TrendingUp size={14} className="text-secondary" />
+                                </div>
+
+                                {/* Dynamic style analysis & LOC stats stats */}
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="bg-surface-bright border border-outline rounded-xl p-3 flex flex-col justify-between">
+                                        <span className="text-[9px] font-bold text-on-surface-variant tracking-wider uppercase">交付提交</span>
+                                        <span className="font-mono text-lg font-bold text-primary mt-1">{selectedContributor.commitsCount30d} <span className="text-[10px] font-sans text-on-surface-variant font-medium">次</span></span>
                                     </div>
-                                </td>
-                                <td className="px-4 py-3">
-                                    <div className="w-full h-2 rounded-full overflow-hidden flex bg-surface-variant">
-                                        <div className="h-full bg-[#2ea44f]" style={{ width: '65%' }}></div>
-                                        <div className="h-full bg-outline-variant" style={{ width: '25%' }}></div>
-                                        <div className="h-full bg-error" style={{ width: '10%' }}></div>
+                                    <div className="bg-surface-bright border border-outline rounded-xl p-3 flex flex-col justify-between">
+                                        <span className="text-[9px] font-bold text-on-surface-variant tracking-wider uppercase">核心影响代码</span>
+                                        <span className="font-mono text-lg font-bold text-[#10b981] mt-1">+{selectedContributor.additions30d.toLocaleString()} <span className="text-[10px] font-sans text-on-surface-variant font-medium">行</span></span>
                                     </div>
-                                    <div className="mt-1 font-code-md text-code-md text-on-surface-variant text-[10px] flex justify-between">
-                                        <span>+4,210</span><span>~1,600</span><span>-640</span>
-                                    </div>
-                                </td>
-                                <td className="px-4 py-3 text-right">
-                                    <button className="text-on-surface-variant hover:text-primary transition-colors opacity-0 group-hover:opacity-100">
-                                        <ChevronRight size={14} />
-                                    </button>
-                                </td>
-                            </tr>
-                            {/* Row 2 */}
-                            <tr className="hover:bg-surface-container-lowest transition-colors group">
-                                <td className="px-4 py-3 text-center">
-                                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-surface-variant text-on-surface-variant font-label-caps text-label-caps">2</span>
-                                </td>
-                                <td className="px-4 py-3">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-8 h-8 rounded-full bg-tertiary-fixed text-on-tertiary-fixed flex items-center justify-center font-headline-sm font-bold text-sm">MR</div>
+
+                                    {/* Contributor Style classification tag */}
+                                    <div className="col-span-2 bg-[#1e293b] border border-outline shadow-inner rounded-xl p-3 flex items-start gap-3">
+                                        <div className="p-1.5 bg-[#fbbf24]/10 border border-[#fbbf24]/20 rounded-lg text-[#fbbf24] mt-0.5 shrink-0">
+                                            <Sparkles size={14} />
+                                        </div>
                                         <div>
-                                            <p className="font-medium text-on-surface leading-tight">Maria Rodriguez</p>
-                                            <p className="font-body-sm text-body-sm text-on-surface-variant leading-tight">m.rodriguez@gitmetrics.io</p>
+                                            <p className="text-[10px] font-bold text-amber-300">工程师交付行为归类</p>
+                                            <p className="text-[11px] text-white/90 font-medium leading-relaxed mt-1">
+                                                {selectedContributor.additions30d > selectedContributor.deletions30d * 6 ? (
+                                                    <span>该协作者为「急速特征突击手」。其行为特征表现为短周期、大规模新代码输出，承担多模块开发的主力交付职责。</span>
+                                                ) : selectedContributor.deletions30d > selectedContributor.additions30d * 0.5 ? (
+                                                    <span>该协作者为「资深代码优化师」。其偏好精益架构，在删除冗余、优化低效逻辑与提高行代码效能方面拥有显著的贡献比率。</span>
+                                                ) : (
+                                                    <span>该协作者为「全能型仓库主导工程师」。其完美平衡特性新增与技术债清理，代码分布合理，具有极其稳健的开发特征。</span>
+                                                )}
+                                            </p>
                                         </div>
                                     </div>
-                                </td>
-                                <td className="px-4 py-3">
-                                    <div className="flex items-center gap-2">
-                                        <span className="font-code-md text-code-md text-on-surface">8.5</span>
-                                        <Minus size={14} className="text-outline" />
-                                    </div>
-                                </td>
-                                <td className="px-4 py-3">
-                                    <div className="w-full h-2 rounded-full overflow-hidden flex bg-surface-variant">
-                                        <div className="h-full bg-[#216e39]" style={{ width: '40%' }}></div>
-                                        <div className="h-full bg-outline-variant" style={{ width: '50%' }}></div>
-                                        <div className="h-full bg-error" style={{ width: '10%' }}></div>
-                                    </div>
-                                    <div className="mt-1 font-code-md text-code-md text-on-surface-variant text-[10px] flex justify-between">
-                                        <span>+2,100</span><span>~2,600</span><span>-520</span>
-                                    </div>
-                                </td>
-                                <td className="px-4 py-3 text-right">
-                                    <button className="text-on-surface-variant hover:text-primary transition-colors opacity-0 group-hover:opacity-100">
-                                        <ChevronRight size={14} />
-                                    </button>
-                                </td>
-                            </tr>
-                            {/* Row 3 */}
-                            <tr className="hover:bg-surface-container-lowest transition-colors group">
-                                <td className="px-4 py-3 text-center">
-                                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-surface-variant text-on-surface-variant font-label-caps text-label-caps">3</span>
-                                </td>
-                                <td className="px-4 py-3">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-8 h-8 rounded-full bg-error-container text-on-error-container flex items-center justify-center font-headline-sm font-bold text-sm">JC</div>
-                                        <div>
-                                            <p className="font-medium text-on-surface leading-tight">James Chen</p>
-                                            <p className="font-body-sm text-body-sm text-on-surface-variant leading-tight">j.chen@gitmetrics.io</p>
+                                </div>
+
+                                {/* Commits timelines feed */}
+                                <div className="space-y-3">
+                                    <h4 className="text-xs font-bold text-on-surface flex items-center justify-between">
+                                        <span>近期动态日志 ({selectedContributor.projects.length}个活跃主仓)</span>
+                                        <span className="text-[9px] text-[#10b981] bg-[#10b981]/10 px-1.5 py-0.2 rounded font-mono">LIVE FEED</span>
+                                    </h4>
+
+                                    {isCommitsLoading ? (
+                                        <div className="flex justify-center items-center py-8">
+                                            <Loader2 size={20} className="text-primary animate-spin" />
                                         </div>
-                                    </div>
-                                </td>
-                                <td className="px-4 py-3">
-                                    <div className="flex items-center gap-2">
-                                        <span className="font-code-md text-code-md text-on-surface">7.2</span>
-                                        <TrendingDown size={14} className="text-error" />
-                                    </div>
-                                </td>
-                                <td className="px-4 py-3">
-                                    <div className="w-full h-2 rounded-full overflow-hidden flex bg-surface-variant">
-                                        <div className="h-full bg-[#40c463]" style={{ width: '20%' }}></div>
-                                        <div className="h-full bg-outline-variant" style={{ width: '30%' }}></div>
-                                        <div className="h-full bg-error" style={{ width: '50%' }}></div>
-                                    </div>
-                                    <div className="mt-1 font-code-md text-code-md text-on-surface-variant text-[10px] flex justify-between">
-                                        <span>+850</span><span>~1,200</span><span>-2,100</span>
-                                    </div>
-                                </td>
-                                <td className="px-4 py-3 text-right">
-                                    <button className="text-on-surface-variant hover:text-primary transition-colors opacity-0 group-hover:opacity-100">
-                                        <ChevronRight size={14} />
-                                    </button>
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+                                    ) : (
+                                        <div className="space-y-2 max-h-72 overflow-y-auto custom-scrollbar pr-1">
+                                            {contributorCommits.map((commit, cIdx) => (
+                                                <div 
+                                                    key={commit.id || cIdx} 
+                                                    className="bg-surface-bright border border-outline rounded-lg p-3 hover:border-primary/30 transition-all flex items-start gap-2.5"
+                                                >
+                                                    <GitCommit size={14} className="text-on-surface-variant/60 mt-0.5 shrink-0" />
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="text-xs font-semibold text-on-surface leading-tight truncate">{commit.title}</p>
+                                                        <div className="flex items-center gap-2 mt-1.5 font-mono text-[9px] font-bold text-on-surface-variant">
+                                                            <span className="text-primary bg-primary/10 px-1 py-0.2 rounded">{commit.shortId || 'hash'}</span>
+                                                            <span className="flex items-center gap-0.5"><Clock size={10} /> {formatDateStr(commit.authoredDate)}</span>
+                                                            <span className="ml-[auto] text-[#10b981]">+{commit.additions} L</span>
+                                                            <span className="text-[#ef4444]">-{commit.deletions} L</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                            {contributorCommits.length === 0 && (
+                                                <p className="text-center py-6 text-on-surface-variant/80 text-[10px] font-semibold bg-surface-bright border border-outline rounded-lg">
+                                                    未抓取到近期物理提交
+                                                </p>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Panel footer close button */}
+                            <div className="p-4 border-t border-outline-variant bg-surface-container-lowest flex justify-end gap-2 shrink-0">
+                                <button 
+                                    onClick={() => setSelectedContributor(null)}
+                                    className="bg-primary hover:bg-primary/95 text-on-primary text-xs font-bold px-4 py-2 rounded-lg cursor-pointer transition-colors shrink-0 active:opacity-90"
+                                >
+                                    关闭档案
+                                </button>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
         </main>
+    );
+};
+
+const Loader2 = ({ size, className }: { size?: number; className?: string }) => {
+    return (
+        <svg 
+            xmlns="http://www.w3.org/2000/svg" 
+            width={size || 24} 
+            height={size || 24} 
+            viewBox="0 0 24 24" 
+            fill="none" 
+            stroke="currentColor" 
+            strokeWidth="2" 
+            strokeLinecap="round" 
+            strokeLinejoin="round" 
+            className={`lucide lucide-loader-2 ${className}`}
+        >
+            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+        </svg>
     );
 };

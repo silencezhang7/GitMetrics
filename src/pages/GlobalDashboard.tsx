@@ -13,6 +13,16 @@ type ProjectTrend = {
     yearlyLoc?: { years: string[]; commits: number[]; additions: number[]; deletions: number[] };
 };
 
+type GitLabContributor = {
+    name: string;
+    commitsCount30d: number;
+    additions30d: number;
+    deletions30d: number;
+    totalLoc30d: number;
+    projects: string[];
+    lastCommitDate: string;
+};
+
 type GitLabSummary = {
     totalProjects: number;
     totalCommits: number;
@@ -30,6 +40,7 @@ type GitLabSummary = {
         };
         projects: ProjectTrend[];
     };
+    contributorsList?: GitLabContributor[];
     topProjects: Array<{
         id: number;
         name: string;
@@ -80,6 +91,10 @@ export const GlobalDashboard = () => {
     const [modalOffset, setModalOffset] = useState(0);
     const [modalHasMore, setModalHasMore] = useState(true);
     const [modalLoading, setModalLoading] = useState(false);
+
+    // 活跃贡献者弹窗状态
+    const [isContributorsModalOpen, setIsContributorsModalOpen] = useState(false);
+    const [contributorSearchQuery, setContributorSearchQuery] = useState('');
 
     useEffect(() => {
         let ignore = false;
@@ -643,14 +658,22 @@ export const GlobalDashboard = () => {
                     </div>
                 </div>
 
-                <div className="workspace-card bg-surface-container-lowest border border-outline-variant rounded p-margin-sm col-span-1 md:col-span-3 lg:col-span-3 hover-ambient-shadow">
+                <div
+                    onClick={() => setIsContributorsModalOpen(true)}
+                    className="workspace-card bg-surface-container-lowest border border-outline-variant rounded p-margin-sm col-span-1 md:col-span-3 lg:col-span-3 hover-ambient-shadow cursor-pointer transition-all hover:border-primary/50 group/card"
+                >
                     <div className="border-b border-outline-variant pb-2 mb-3 flex justify-between items-center">
-                        <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">活跃贡献者</span>
-                        <Users size={16} className="text-on-surface-variant" />
+                        <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider group-hover/card:text-primary transition-colors">活跃贡献者</span>
+                        <Users size={16} className="text-on-surface-variant group-hover/card:text-primary transition-colors" />
                     </div>
                     <div className="flex items-end justify-between">
-                        <div className="font-headline-lg text-headline-lg text-on-surface font-code-md">{activeContributors}</div>
-                        <div className="font-body-sm text-body-sm text-on-surface-variant flex items-center">
+                        <div>
+                            <div className="font-headline-lg text-headline-lg text-on-surface font-code-md group-hover/card:text-primary-fixed transition-colors">{activeContributors}</div>
+                            <div className="text-[10px] text-secondary font-medium tracking-tight mt-1 opacity-0 group-hover/card:opacity-100 transition-opacity flex items-center gap-1">
+                                点击查看详情 <span>→</span>
+                            </div>
+                        </div>
+                        <div className="font-body-sm text-body-sm text-on-surface-variant flex items-center mb-1 shrink-0">
                             <Minus size={14} className="mr-1" /> 0%
                         </div>
                     </div>
@@ -1409,6 +1432,187 @@ export const GlobalDashboard = () => {
                         <div className="border-t border-outline-variant px-6 py-4 flex justify-end bg-surface-bright bg-surface-container-low">
                             <button
                                 onClick={() => setIsProjectsModalOpen(false)}
+                                className="px-5 py-2 bg-secondary text-on-secondary rounded-lg font-body-sm text-body-sm hover:opacity-95 transition-opacity cursor-pointer shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]"
+                            >
+                                关闭
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* 活跃贡献者弹出细则 */}
+            {isContributorsModalOpen && (
+                <div id="contributors-modal" className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    {/* 背景遮罩 */}
+                    <div
+                        className="absolute inset-0 bg-slate-950/80 backdrop-blur-md transition-opacity duration-300"
+                        onClick={() => {
+                            setIsContributorsModalOpen(false);
+                            setContributorSearchQuery('');
+                        }}
+                    />
+
+                    {/* 弹窗主体 */}
+                    <div className="relative bg-surface-dim/95 border border-outline border-outline-variant w-full max-w-2xl rounded-2xl shadow-[0_24px_64px_rgba(2,6,23,0.5)] overflow-hidden flex flex-col max-h-[85vh] transform transition-all duration-300 animate-in fade-in zoom-in-95">
+                        {/* 弹窗头部 */}
+                        <div className="border-b border-outline-variant px-6 py-4 flex items-center justify-between bg-surface-bright bg-surface-container-low">
+                            <div>
+                                <h3 className="font-headline-sm text-headline-sm text-primary flex items-center gap-2">
+                                    <Users className="text-secondary" size={20} />
+                                    <span>{groupLabel} 活跃贡献者与贡献列表</span>
+                                </h3>
+                                <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">
+                                    展示最近30天内提交代码的团队成员及工作量排行
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => {
+                                    setIsContributorsModalOpen(false);
+                                    setContributorSearchQuery('');
+                                }}
+                                className="text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors p-2 rounded-full cursor-pointer"
+                                aria-label="关闭弹窗"
+                            >
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        {/* 搜索控制台 & 头部汇总 */}
+                        <div className="px-6 py-3.5 bg-surface border-b border-outline-variant flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div className="relative flex items-center flex-1 max-w-sm">
+                                <Search size={14} className="absolute left-3 text-on-surface-variant" />
+                                <input
+                                    type="text"
+                                    value={contributorSearchQuery}
+                                    onChange={(e) => setContributorSearchQuery(e.target.value)}
+                                    placeholder="搜索贡献者姓名..."
+                                    className="w-full bg-surface-container-lowest border border-outline-variant rounded-lg px-2 py-1.5 pl-8 text-xs text-on-surface focus:outline-none focus:border-primary/50"
+                                />
+                            </div>
+                            <div className="text-[11px] text-on-surface-variant font-mono text-right flex items-center gap-2 shrink-0 self-end sm:self-center">
+                                <span>筛选出: <strong className="text-primary font-bold">{(summary?.contributorsList ?? []).filter(c => c.name.toLowerCase().includes(contributorSearchQuery.toLowerCase())).length}</strong> 人</span>
+                                <span>•</span>
+                                <span>总人数: {summary?.contributorsList?.length ?? 0} 人</span>
+                            </div>
+                        </div>
+
+                        {/* 弹窗核心内容：活跃贡献者排行列表 */}
+                        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3.5 custom-scrollbar">
+                            {((summary?.contributorsList ?? []).filter(c => 
+                                c.name.toLowerCase().includes(contributorSearchQuery.toLowerCase())
+                            )).map((contributor, idx) => {
+                                const initials = contributor.name.substring(0, 2).toUpperCase();
+                                
+                                // Beautiful gradient background indices based on name to make it look professional
+                                const avatarBgGradients = [
+                                    "bg-gradient-to-br from-blue-500/10 to-blue-600/30 text-blue-600 border-blue-500/20",
+                                    "bg-gradient-to-br from-emerald-500/10 to-emerald-600/30 text-emerald-600 border-emerald-500/20",
+                                    "bg-gradient-to-br from-purple-500/10 to-purple-600/30 text-purple-600 border-purple-500/20",
+                                    "bg-gradient-to-br from-amber-500/10 to-amber-600/30 text-amber-600 border-amber-500/20",
+                                    "bg-gradient-to-br from-pink-500/10 to-pink-600/30 text-pink-600 border-pink-500/20"
+                                ];
+                                const avatarStyle = avatarBgGradients[idx % avatarBgGradients.length];
+
+                                const formatDate = (dateStr?: string) => {
+                                    if (!dateStr) return '';
+                                    try {
+                                        const d = new Date(dateStr);
+                                        return d.toLocaleDateString('zh-CN', {
+                                            year: 'numeric',
+                                            month: 'numeric',
+                                            day: 'numeric'
+                                        });
+                                    } catch {
+                                        return dateStr;
+                                    }
+                                };
+
+                                return (
+                                    <div
+                                        key={contributor.name}
+                                        className="flex items-center justify-between p-4 bg-surface-container-lowest border border-outline-variant rounded-xl hover:border-primary/30 transition-all hover-ambient-shadow flex-wrap sm:flex-nowrap gap-4"
+                                    >
+                                        {/* Avatar & Info */}
+                                        <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                                            <div className={`w-11 h-11 rounded-full flex items-center justify-center border font-mono font-bold text-sm tracking-wider shrink-0 shadow-sm ${avatarStyle}`}>
+                                                {initials}
+                                            </div>
+                                            <div className="min-w-0">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-code-md text-body-md font-bold text-on-surface truncate">
+                                                        {contributor.name}
+                                                    </span>
+                                                    {idx === 0 && (
+                                                        <span className="text-[9px] bg-amber-500/10 text-amber-500 border border-amber-500/20 px-1 py-0.2 rounded font-bold shrink-0">🥇 核心贡献者</span>
+                                                    )}
+                                                    {idx === 1 && (
+                                                        <span className="text-[9px] bg-slate-500/10 text-on-surface-variant border border-outline-variant px-1 py-0.2 rounded font-medium shrink-0">🥈 高活跃</span>
+                                                    )}
+                                                </div>
+                                                
+                                                <div className="flex flex-wrap items-center mt-2 gap-1.5">
+                                                    <span className="text-[9px] font-medium text-on-surface-variant select-none">贡献项目:</span>
+                                                    {contributor.projects.map((proj) => (
+                                                        <span key={proj} className="text-[10px] bg-surface border border-outline-variant/60 rounded px-1.5 py-0.2 font-medium text-on-surface truncate max-w-[120px]">
+                                                            {proj}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Workload Stats Metrics */}
+                                        <div className="flex items-center gap-6 shrink-0 sm:self-center self-end w-full sm:w-auto justify-between sm:justify-end border-t sm:border-t-0 border-outline-variant/50 pt-2 sm:pt-0">
+                                            <div className="text-left sm:text-right">
+                                                <div className="flex items-center sm:justify-end gap-1 text-on-surface font-semibold font-mono text-sm">
+                                                    <GitCommit size={13} className="text-blue-500" />
+                                                    <span>{contributor.commitsCount30d} 次</span>
+                                                </div>
+                                                <span className="text-[9px] font-medium text-on-surface-variant uppercase select-none block mt-0.5">代码提交数</span>
+                                            </div>
+
+                                            <div className="text-left sm:text-right">
+                                                <div className="flex items-center sm:justify-end gap-1 font-semibold font-mono text-sm text-emerald-600">
+                                                    <span>+{contributor.additions30d}</span>
+                                                    <span className="text-on-surface-variant font-normal">/</span>
+                                                    <span className="text-red-500">-{contributor.deletions30d}</span>
+                                                </div>
+                                                <span className="text-[9px] font-medium text-on-surface-variant uppercase select-none block mt-0.5">代码变更(LOC)</span>
+                                            </div>
+
+                                            <div className="text-right min-w-[70px]">
+                                                <span className="text-[10px] font-mono font-medium text-on-surface">
+                                                    {formatDate(contributor.lastCommitDate)}
+                                                </span>
+                                                <span className="text-[9px] font-medium text-on-surface-variant uppercase select-none block mt-0.5">最近一次提交</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+
+                            {/* 空搜索结果 */}
+                            {((summary?.contributorsList ?? []).filter(c => 
+                                c.name.toLowerCase().includes(contributorSearchQuery.toLowerCase())
+                            )).length === 0 && (
+                                <div className="py-14 text-center text-on-surface-variant">
+                                    <Users className="mx-auto mb-3 opacity-25" size={40} />
+                                    <p className="font-body-md text-body-md font-semibold">未找到匹配的贡献者</p>
+                                    <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">请尝试使用其他关键词重新搜索</p>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* 弹窗底部 */}
+                        <div className="border-t border-outline-variant px-6 py-4 flex justify-end bg-surface-bright bg-surface-container-low">
+                            <button
+                                onClick={() => {
+                                    setIsContributorsModalOpen(false);
+                                    setContributorSearchQuery('');
+                                }}
                                 className="px-5 py-2 bg-secondary text-on-secondary rounded-lg font-body-sm text-body-sm hover:opacity-95 transition-opacity cursor-pointer shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]"
                             >
                                 关闭

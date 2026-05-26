@@ -698,7 +698,8 @@ async function startServer() {
 
       const params = new URLSearchParams({
         per_page: String(limit),
-        page: String(page)
+        page: String(page),
+        all: 'true'
       });
       if (author) {
         params.set('author', author);
@@ -720,6 +721,9 @@ async function startServer() {
           total: stats.total
         };
       });
+
+      // Explicitly sort dynamically fetched commits descending by date just in case
+      enriched.sort((a, b) => new Date(b.authoredDate).getTime() - new Date(a.authoredDate).getTime());
 
       return res.json({
         items: enriched,

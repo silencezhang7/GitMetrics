@@ -1,20 +1,48 @@
-import { Menu, Search, Bell, Settings } from 'lucide-react';
-import { useLocation } from 'react-router-dom';
+import { Menu, Bell, Settings } from 'lucide-react';
+import { useLocation, useSearchParams } from 'react-router-dom';
+import { useState, useEffect } from 'react';
 
 export const Header = () => {
     const location = useLocation();
+    const [searchParams] = useSearchParams();
+    const [projectName, setProjectName] = useState('frontend-framework');
 
-    // Just to mock some dynamic breadcrumb
-    const pathName = {
-        '/': 'Global Dashboard',
-        '/project-insights': 'frontend-framework',
-        '/contributor-analytics': 'Contributor Analytics',
-        '/developer-profile': 'Developer Profile',
-    }[location.pathname] || 'Dashboard';
+    useEffect(() => {
+        if (location.pathname !== '/project-insights') return;
+
+        const projectId = searchParams.get('projectId');
+
+        const fetchProjectName = async () => {
+            try {
+                const response = await fetch('/api/gitlab/projects?limit=100');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.items && data.items.length > 0) {
+                        const currentId = projectId || String(data.items[0].id);
+                        const match = data.items.find((p: any) => String(p.id) === currentId);
+                        if (match) {
+                            setProjectName(match.name.split('/').pop() || match.name);
+                        } else if (!projectId) {
+                            setProjectName(data.items[0].name.split('/').pop() || data.items[0].name);
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error("Header fetch projects failed:", err);
+                if (projectId) {
+                    setProjectName(projectId);
+                } else {
+                    setProjectName('frontend-framework');
+                }
+            }
+        };
+
+        fetchProjectName();
+    }, [location.pathname, searchParams]);
 
     return (
         <header className="flex justify-between items-center w-full px-margin-md h-16 sticky top-0 z-30 bg-surface-container-lowest dark:bg-inverse-surface border-b border-outline-variant dark:border-outline">
-            {/* Brand / Search (Left) */}
+            {/* Brand (Left) */}
             <div className="flex items-center gap-4">
                 {/* Mobile Menu Trigger */}
                 <button className="md:hidden text-on-surface-variant hover:bg-surface-container p-2 rounded transition-colors">
@@ -25,18 +53,10 @@ export const Header = () => {
                     {location.pathname === '/project-insights' && (
                         <>
                             <span className="text-on-surface-variant text-body-sm font-normal">/</span>
-                            <span className="font-code-md text-code-md text-primary bg-surface-container px-2 py-0.5 rounded text-sm">frontend-framework</span>
+                            <span className="font-code-md text-code-md text-primary bg-surface-container px-2 py-0.5 rounded text-sm">{projectName}</span>
                         </>
                     )}
                 </div>
-
-                {/* Search Bar */}
-                {location.pathname !== '/project-insights' && (
-                    <div className="relative hidden sm:block ml-4">
-                        <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant" />
-                        <input type="text" placeholder="Search..." className="w-64 bg-surface-container-low border border-outline-variant rounded pl-9 pr-3 py-1.5 font-body-sm text-body-sm text-on-surface focus:outline-none focus:border-on-tertiary-container focus:ring-1 focus:ring-on-tertiary-container transition-all" />
-                    </div>
-                )}
             </div>
 
             {/* Actions (Right) */}

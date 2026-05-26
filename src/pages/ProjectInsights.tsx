@@ -11,9 +11,10 @@ import {
     XCircle,
     MoreHorizontal,
     ChevronDown,
-    Loader2
+    Loader2,
+    Search
 } from 'lucide-react';
-import { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 type ProjectItem = {
@@ -70,6 +71,12 @@ export const ProjectInsights = () => {
     const [projects, setProjects] = useState<ProjectItem[]>([]);
     const [selectedProjectId, setSelectedProjectId] = useState<string>('');
     const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
+    
+    // Fuzzy search state and refs
+    const [projectSearchQuery, setProjectSearchQuery] = useState('');
+    const projectDropdownRef = useRef<HTMLDivElement>(null);
+    const optionsContainerRef = useRef<HTMLDivElement>(null);
+    const [activeDropdownIndex, setActiveDropdownIndex] = useState(0);
     
     // Insights stats
     const [insights, setInsights] = useState<ProjectInsightsType | null>(null);
@@ -227,10 +234,72 @@ export const ProjectInsights = () => {
         };
     }, [selectedProjectId]);
 
+    const filteredProjects = useMemo(() => {
+        return projects.filter(project => {
+            const query = projectSearchQuery.toLowerCase().trim();
+            if (!query) return true;
+            return (
+                project.name.toLowerCase().includes(query) ||
+                String(project.id).toLowerCase().includes(query)
+            );
+        });
+    }, [projects, projectSearchQuery]);
+
+    const dropdownOptions = useMemo(() => {
+        return filteredProjects.map(p => ({ id: String(p.id), name: p.name }));
+    }, [filteredProjects]);
+
+    useEffect(() => {
+        function handleClickOutside(event: MouseEvent) {
+            if (projectDropdownRef.current && !projectDropdownRef.current.contains(event.target as Node)) {
+                setIsProjectDropdownOpen(false);
+            }
+        }
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, []);
+
+    useEffect(() => {
+        setActiveDropdownIndex(0);
+    }, [projectSearchQuery, isProjectDropdownOpen]);
+
+    useEffect(() => {
+        if (isProjectDropdownOpen && optionsContainerRef.current) {
+            const activeEl = optionsContainerRef.current.children[activeDropdownIndex] as HTMLElement;
+            if (activeEl) {
+                activeEl.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+            }
+        }
+    }, [activeDropdownIndex, isProjectDropdownOpen]);
+
+    const handleDropdownKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (!isProjectDropdownOpen || dropdownOptions.length === 0) return;
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setActiveDropdownIndex((prev) => (prev < dropdownOptions.length - 1 ? prev + 1 : 0));
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setActiveDropdownIndex((prev) => (prev > 0 ? prev - 1 : dropdownOptions.length - 1));
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            const selectedOpt = dropdownOptions[activeDropdownIndex];
+            if (selectedOpt) {
+                handleProjectChange(selectedOpt.id);
+            }
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            setIsProjectDropdownOpen(false);
+        }
+    };
+
     const handleProjectChange = (id: string) => {
         setSearchParams({ projectId: id });
         setSelectedProjectId(id);
         setIsProjectDropdownOpen(false);
+        setProjectSearchQuery('');
     };
 
     const colors = ['bg-surface-container', 'bg-[#38bdf8]/10 text-[#38bdf8] border-[#38bdf8]/20', 'bg-[#38bdf8]/30', 'bg-[#0ea5e9]', 'bg-[#1e1b4b]'];
@@ -308,7 +377,7 @@ export const ProjectInsights = () => {
                     
                     {/* Interactive Dropdown Selector */}
                     <div className="flex items-center gap-1.5 flex-wrap">
-                        <div className="relative">
+                        <div className="relative" ref={projectDropdownRef}>
                             <button
                                 onClick={() => setIsProjectDropdownOpen(!isProjectDropdownOpen)}
                                 className="font-headline-lg text-headline-sm md:text-headline-lg text-primary mb-2 flex items-center gap-2 cursor-pointer hover:opacity-85 pr-6 relative focus:outline-none focus:ring-1 focus:ring-primary/20 rounded-lg p-1"
@@ -319,29 +388,55 @@ export const ProjectInsights = () => {
                             </button>
 
                             {isProjectDropdownOpen && (
-                                <div className="absolute left-0 mt-2 w-72 bg-surface-bright border border-outline rounded-xl shadow-2xl z-40 max-h-80 overflow-y-auto custom-scrollbar animate-in fade-in slide-in-from-top-3 duration-250">
-                                    <div className="px-3.5 py-2 border-b border-outline-variant text-[10px] text-on-surface-variant font-medium uppercase tracking-wider">
+                                <div className="absolute left-0 mt-2 w-72 bg-surface-bright border border-outline rounded-xl shadow-2xl z-40 max-h-80 overflow-y-auto custom-scrollbar flex flex-col animate-in fade-in slide-in-from-top-3 duration-250">
+                                    {/* Search Input */}
+                                    <div className="relative flex items-center px-3 py-2.5 border-b border-outline-variant">
+                                        <Search size={12} className="absolute left-5.5 text-on-surface-variant" />
+                                        <input
+                                            type="text"
+                                            value={projectSearchQuery}
+                                            onChange={(e) => setProjectSearchQuery(e.target.value)}
+                                            onKeyDown={handleDropdownKeyDown}
+                                            placeholder="搜索项目..."
+                                            className="w-full bg-surface border border-outline-variant rounded px-2.5 py-1.5 pl-8 text-[11px] text-on-surface focus:outline-none focus:border-primary/50 placeholder:text-on-surface-variant/50"
+                                            autoFocus
+                                        />
+                                    </div>
+                                    <div className="px-3.5 py-1.5 border-b border-outline-variant text-[9px] text-on-surface-variant/75 font-semibold uppercase tracking-wider">
                                         选择分支或存储库项目
                                     </div>
-                                    <div className="py-1">
-                                        {projects.map((proj) => (
-                                            <button
-                                                key={proj.id}
-                                                onClick={() => handleProjectChange(String(proj.id))}
-                                                className={`w-full text-left px-4 py-2.5 text-xs font-medium flex items-center justify-between border-b border-outline-variant/30 last:border-0 hover:bg-surface-container-lowest transition-colors ${
-                                                    String(proj.id) === selectedProjectId
-                                                        ? 'text-primary bg-surface-container-lowest font-bold border-l-2 border-l-primary'
-                                                        : 'text-on-surface hover:text-primary'
-                                                }`}
-                                            >
-                                                <span className="truncate mr-4">{proj.name}</span>
-                                                {proj.commits30d !== undefined && (
-                                                    <span className="text-[9px] bg-secondary-container text-on-secondary-container px-1.5 py-0.5 rounded font-mono shrink-0">
-                                                        {proj.commits30d} 提交
-                                                    </span>
-                                                )}
-                                            </button>
-                                        ))}
+                                    <div className="py-1 overflow-y-auto max-h-56 custom-scrollbar flex flex-col gap-0.5" ref={optionsContainerRef}>
+                                        {filteredProjects.map((proj, idx) => {
+                                            const isSelected = String(proj.id) === selectedProjectId;
+                                            const isHighlighted = activeDropdownIndex === idx;
+                                            return (
+                                                <button
+                                                    key={proj.id}
+                                                    type="button"
+                                                    onClick={() => handleProjectChange(String(proj.id))}
+                                                    onMouseEnter={() => setActiveDropdownIndex(idx)}
+                                                    className={`w-full text-left px-4 py-2.5 text-xs font-semibold flex items-center justify-between border-b border-outline-variant/30 last:border-0 hover:bg-surface-container-lowest transition-colors ${
+                                                        isSelected
+                                                            ? 'text-primary bg-primary/10 border-l-2 border-l-primary font-bold'
+                                                            : isHighlighted
+                                                            ? 'bg-primary/5 text-primary border-l-2 border-l-transparent'
+                                                            : 'text-on-surface hover:text-primary border-l-2 border-l-transparent'
+                                                    }`}
+                                                >
+                                                    <span className="truncate mr-4">{proj.name}</span>
+                                                    {proj.commits30d !== undefined && (
+                                                        <span className="text-[9px] bg-secondary-container text-on-secondary-container px-1.5 py-0.5 rounded font-mono shrink-0">
+                                                            {proj.commits30d} 提交
+                                                        </span>
+                                                    )}
+                                                </button>
+                                            );
+                                        })}
+                                        {filteredProjects.length === 0 && (
+                                            <div className="text-center text-[10px] text-on-surface-variant py-4 font-medium">
+                                                未找到匹配项目
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             )}

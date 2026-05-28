@@ -670,7 +670,7 @@ export const DeveloperProfile = () => {
                                     </div>
 
                                     <div className="flex flex-col gap-1.5">
-                                        {punchCardData.map((row) => (
+                                        {punchCardData.map((row, rowIdx) => (
                                             <div key={row.day} className="flex items-center gap-1.5">
                                                 {/* Day Row Header */}
                                                 <span className="w-9 text-right pr-2 font-semibold text-[10px] text-on-surface-variant shrink-0">{row.day}</span>
@@ -687,8 +687,16 @@ export const DeveloperProfile = () => {
                                                     const isHovered = hoveredCell?.day === row.day && hoveredCell?.hour === hour;
 
                                                     return (
-                                                        <div
+                                                        <motion.div
                                                             key={hour}
+                                                            initial={{ scale: 0.1, opacity: 0 }}
+                                                            animate={{ scale: 1, opacity: 1 }}
+                                                            transition={{ 
+                                                                delay: rowIdx * 0.03 + hour * 0.008, 
+                                                                type: 'spring', 
+                                                                stiffness: 240, 
+                                                                damping: 18 
+                                                            }}
                                                             onMouseEnter={() => setHoveredCell({ day: row.day, hour, val })}
                                                             onMouseLeave={() => setHoveredCell(null)}
                                                             className={`flex-1 aspect-square rounded-[3px] border border-outline-variant/5 transition-all duration-150 cursor-pointer ${bgClass} ${isHovered ? 'scale-120 ring-1 ring-primary/40 shadow-inner' : ''}`}

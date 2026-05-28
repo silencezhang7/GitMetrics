@@ -7,13 +7,13 @@ export const Sidebar = () => {
             <div className="mb-margin-lg px-2 flex items-center gap-3">
                 <div className="w-8 h-8 rounded-md bg-primary text-on-primary flex items-center justify-center font-headline-sm font-bold"><Code size={18} /></div>
                 <div>
-                    <h1 className="font-headline-sm text-headline-sm font-bold text-primary dark:text-primary-fixed tracking-tight">Main Workspace</h1>
-                    <p className="font-body-sm text-body-sm text-on-surface-variant">Git Analytics Engine</p>
+                    <h1 className="font-headline-sm text-headline-sm font-bold text-primary dark:text-primary-fixed tracking-tight">分析工作台</h1>
+                    <p className="font-body-sm text-body-sm text-on-surface-variant">Git 度量分析引擎</p>
                 </div>
             </div>
             
             <button className="w-full mb-6 bg-surface-container-highest hover:bg-surface-variant text-on-surface flex items-center justify-between px-3 py-2 rounded border border-outline-variant transition-colors group">
-                <span className="font-body-sm text-body-sm font-medium">Project Switcher</span>
+                <span className="font-body-sm text-body-sm font-medium">项目快速切换</span>
                 <ArrowRightLeft size={18} className="group-hover:translate-y-px transition-transform"/>
             </button>
             <nav className="flex-1 flex flex-col gap-1">
@@ -21,7 +21,7 @@ export const Sidebar = () => {
                     {({isActive}) => (
                         <>
                             <LayoutDashboard size={20} className={isActive ? '' : 'group-hover:translate-x-1 duration-200'}/>
-                            <span>Global Dashboard</span>
+                            <span>全局大屏总览</span>
                         </>
                     )}
                 </NavLink>
@@ -29,7 +29,7 @@ export const Sidebar = () => {
                     {({isActive}) => (
                         <>
                             <LineChart size={20} className={isActive ? '' : 'group-hover:translate-x-1 duration-200'}/>
-                            <span>Project Insights</span>
+                            <span>项目深度洞察</span>
                         </>
                     )}
                 </NavLink>
@@ -37,7 +37,7 @@ export const Sidebar = () => {
                     {({isActive}) => (
                         <>
                             <Users size={20} className={isActive ? '' : 'group-hover:translate-x-1 duration-200'}/>
-                            <span>Contributor Analytics</span>
+                            <span>团队贡献效率</span>
                         </>
                     )}
                 </NavLink>
@@ -45,7 +45,7 @@ export const Sidebar = () => {
                     {({isActive}) => (
                         <>
                             <User size={20} className={isActive ? '' : 'group-hover:translate-x-1 duration-200'}/>
-                            <span>Developer Profile</span>
+                            <span>开发者画像</span>
                         </>
                     )}
                 </NavLink>
@@ -54,11 +54,11 @@ export const Sidebar = () => {
                 <div className="space-y-1">
                     <a href="#" className="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant hover:text-primary font-label-caps text-label-caps transition-colors group">
                         <BookOpen size={18} className="group-hover:translate-x-1 duration-200" />
-                        <span>Documentation</span>
+                        <span>帮助与开发文档</span>
                     </a>
                     <a href="#" className="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant hover:text-primary font-label-caps text-label-caps transition-colors group">
                         <HelpCircle size={18} className="group-hover:translate-x-1 duration-200" />
-                        <span>Support</span>
+                        <span>技术支持与反馈</span>
                     </a>
                 </div>
             </div>

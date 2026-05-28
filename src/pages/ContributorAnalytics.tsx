@@ -923,19 +923,61 @@ export const ContributorAnalytics = () => {
                                         {chartMode === 'commits' && (
                                             <>
                                                 {/* Area Fill */}
-                                                <path d={chartRenderData.paths.commitsBg} fill="url(#gradient-commits)" />
+                                                <motion.path 
+                                                    d={chartRenderData.paths.commitsBg} 
+                                                    fill="url(#gradient-commits)" 
+                                                    initial={{ opacity: 0 }}
+                                                    animate={{ opacity: 1 }}
+                                                    transition={{ duration: 1, delay: 0.4 }}
+                                                />
                                                 {/* Stroke line */}
-                                                <path d={chartRenderData.paths.commits} fill="none" stroke="#2563eb" strokeWidth="2.5" />
+                                                <motion.path 
+                                                    d={chartRenderData.paths.commits} 
+                                                    fill="none" 
+                                                    stroke="#2563eb" 
+                                                    strokeWidth="2.5" 
+                                                    initial={{ pathLength: 0, opacity: 0 }}
+                                                    animate={{ pathLength: 1, opacity: 1 }}
+                                                    transition={{ duration: 1.2, ease: "easeInOut" }}
+                                                />
                                             </>
                                         )}
 
                                         {/* Render Additions vs Deletions Paths */}
                                         {chartMode === 'impact' && (
                                             <>
-                                                <path d={chartRenderData.paths.additionsBg} fill="url(#gradient-additions)" />
-                                                <path d={chartRenderData.paths.additions} fill="none" stroke="#10b981" strokeWidth="2" />
-                                                <path d={chartRenderData.paths.deletionsBg} fill="url(#gradient-deletions)" />
-                                                <path d={chartRenderData.paths.deletions} fill="none" stroke="#ef4444" strokeWidth="2" />
+                                                <motion.path 
+                                                    d={chartRenderData.paths.additionsBg} 
+                                                    fill="url(#gradient-additions)" 
+                                                    initial={{ opacity: 0 }}
+                                                    animate={{ opacity: 1 }}
+                                                    transition={{ duration: 1, delay: 0.4 }}
+                                                />
+                                                <motion.path 
+                                                    d={chartRenderData.paths.additions} 
+                                                    fill="none" 
+                                                    stroke="#10b981" 
+                                                    strokeWidth="2" 
+                                                    initial={{ pathLength: 0, opacity: 0 }}
+                                                    animate={{ pathLength: 1, opacity: 1 }}
+                                                    transition={{ duration: 1.2, ease: "easeInOut" }}
+                                                />
+                                                <motion.path 
+                                                    d={chartRenderData.paths.deletionsBg} 
+                                                    fill="url(#gradient-deletions)" 
+                                                    initial={{ opacity: 0 }}
+                                                    animate={{ opacity: 1 }}
+                                                    transition={{ duration: 1, delay: 0.4 }}
+                                                />
+                                                <motion.path 
+                                                    d={chartRenderData.paths.deletions} 
+                                                    fill="none" 
+                                                    stroke="#ef4444" 
+                                                    strokeWidth="2" 
+                                                    initial={{ pathLength: 0, opacity: 0 }}
+                                                    animate={{ pathLength: 1, opacity: 1 }}
+                                                    transition={{ duration: 1.3, ease: "easeInOut", delay: 0.15 }}
+                                                />
                                             </>
                                         )}
 
@@ -974,13 +1016,58 @@ export const ContributorAnalytics = () => {
                                                 >
                                                     {chartMode === 'commits' ? (
                                                         <>
-                                                            <circle cx={c.x} cy={c.commitsY} r={hoveredTrendIdx === i ? 6 : 4} fill="#2563eb" stroke="#ffffff" strokeWidth="1.5" className="transition-all" />
+                                                            <motion.circle 
+                                                                cx={c.x} 
+                                                                cy={c.commitsY} 
+                                                                r={hoveredTrendIdx === i ? 6 : 4} 
+                                                                fill="#2563eb" 
+                                                                stroke="#ffffff" 
+                                                                strokeWidth="1.5"
+                                                                initial={{ scale: 0 }}
+                                                                animate={{ scale: 1 }}
+                                                                transition={{ 
+                                                                    delay: 0.8 + (i * 0.05),
+                                                                    type: "spring",
+                                                                    stiffness: 200,
+                                                                    damping: 12
+                                                                }}
+                                                            />
                                                             <circle cx={c.x} cy={c.commitsY} r="12" fill="#2563eb" opacity="0" className="hover:opacity-10 transition-opacity" />
                                                         </>
                                                     ) : (
                                                         <>
-                                                            <circle cx={c.x} cy={c.additionsY} r={hoveredTrendIdx === i ? 5.5 : 3.5} fill="#10b981" stroke="#ffffff" strokeWidth="1.5" className="transition-all" />
-                                                            <circle cx={c.x} cy={c.deletionsY} r={hoveredTrendIdx === i ? 5.5 : 3.5} fill="#ef4444" stroke="#ffffff" strokeWidth="1.5" className="transition-all" />
+                                                            <motion.circle 
+                                                                cx={c.x} 
+                                                                cy={c.additionsY} 
+                                                                r={hoveredTrendIdx === i ? 5.5 : 3.5} 
+                                                                fill="#10b981" 
+                                                                stroke="#ffffff" 
+                                                                strokeWidth="1.5"
+                                                                initial={{ scale: 0 }}
+                                                                animate={{ scale: 1 }}
+                                                                transition={{ 
+                                                                    delay: 0.8 + (i * 0.05),
+                                                                    type: "spring",
+                                                                    stiffness: 200,
+                                                                    damping: 12
+                                                                }}
+                                                            />
+                                                            <motion.circle 
+                                                                cx={c.x} 
+                                                                cy={c.deletionsY} 
+                                                                r={hoveredTrendIdx === i ? 5.5 : 3.5} 
+                                                                fill="#ef4444" 
+                                                                stroke="#ffffff" 
+                                                                strokeWidth="1.5"
+                                                                initial={{ scale: 0 }}
+                                                                animate={{ scale: 1 }}
+                                                                transition={{ 
+                                                                    delay: 0.9 + (i * 0.05),
+                                                                    type: "spring",
+                                                                    stiffness: 200,
+                                                                    damping: 12
+                                                                }}
+                                                            />
                                                             <circle cx={c.x} cy={((c.additionsY + c.deletionsY) / 2)} r="14" fill="#10b981" opacity="0" className="hover:opacity-5 transition-opacity" />
                                                         </>
                                                     )}

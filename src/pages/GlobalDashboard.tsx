@@ -1,5 +1,6 @@
 import { Calendar, Download, GitCommit, Code, Users, GitMerge, TrendingUp, TrendingDown, Minus, MoreVertical, Folder, ArrowUp, ChevronDown, Search } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
+import { motion } from 'motion/react';
 
 type ProjectTrend = {
     id: number;
@@ -858,20 +859,34 @@ export const GlobalDashboard = () => {
 
                             {/* Line & Shaded Area */}
                             {activeTrendData.length > 0 && (
-                                <>
+                                <motion.g 
+                                    key={trendGranularity}
+                                    initial="hidden"
+                                    animate="visible"
+                                    variants={{
+                                        hidden: { opacity: 0 },
+                                        visible: { opacity: 1, transition: { duration: 0.5 } }
+                                    }}
+                                >
                                     {/* Shaded Area */}
-                                    <polygon 
+                                    <motion.polygon 
                                         fill="url(#trendCardGradient)" 
                                         points={activeTrendAreaPointsStr} 
+                                        initial={{ opacity: 0 }}
+                                        animate={{ opacity: 1 }}
+                                        transition={{ duration: 0.8, delay: 0.3 }}
                                     />
                                     {/* Trend line */}
-                                    <polyline 
+                                    <motion.polyline 
                                         fill="none" 
                                         points={activeTrendPointsStr} 
                                         stroke="#3781f3" 
                                         strokeLinejoin="round" 
                                         strokeLinecap="round" 
                                         strokeWidth="2.5" 
+                                        initial={{ pathLength: 0, opacity: 0 }}
+                                        animate={{ pathLength: 1, opacity: 1 }}
+                                        transition={{ duration: 1.2, ease: "easeInOut" }}
                                     />
                                     
                                     {/* Points and data labels above points */}
@@ -884,7 +899,7 @@ export const GlobalDashboard = () => {
 
                                         return (
                                             <g key={idx} className="group/dot">
-                                                <circle 
+                                                <motion.circle 
                                                     cx={x} 
                                                     cy={y} 
                                                     r="3.5" 
@@ -892,21 +907,32 @@ export const GlobalDashboard = () => {
                                                     stroke="#3781f3" 
                                                     strokeWidth="2" 
                                                     className="transition-all duration-150 hover:r-[5px] cursor-pointer"
+                                                    initial={{ scale: 0, opacity: 0 }}
+                                                    animate={{ scale: 1, opacity: 1 }}
+                                                    transition={{ 
+                                                        delay: 0.6 + idx * (1 / Math.max(activeTrendData.length, 1)) * 0.4, 
+                                                        type: 'spring', 
+                                                        stiffness: 180, 
+                                                        damping: 12 
+                                                    }}
                                                 />
                                                 {shouldShowText && (
-                                                    <text 
+                                                    <motion.text 
                                                         x={x} 
                                                         y={y - 8} 
                                                         textAnchor="middle" 
                                                         className="text-[9px] font-bold font-mono fill-primary select-none drop-shadow-sm transition-all group-hover/dot:text-[11px]"
+                                                        initial={{ opacity: 0, y: y - 2 }}
+                                                        animate={{ opacity: 1, y: y - 8 }}
+                                                        transition={{ delay: 0.8 + idx * (1 / Math.max(activeTrendData.length, 1)) * 0.4, duration: 0.3 }}
                                                     >
                                                         {val}
-                                                    </text>
+                                                    </motion.text>
                                                 )}
                                             </g>
                                         );
                                     })}
-                                </>
+                                </motion.g>
                             )}
 
                             {/* X-axis labels */}

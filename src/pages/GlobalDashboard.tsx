@@ -560,8 +560,8 @@ export const GlobalDashboard = () => {
     const groupLabel = selectedGroup?.fullName ?? '全部组';
 
     return (
-        <main className="flex-1 overflow-y-auto p-margin-md">
-            <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-6 lg:grid-cols-12 gap-gutter">
+        <main className="flex-1 overflow-y-auto p-margin-sm md:p-margin-md lg:p-margin-lg bg-background">
+            <div className="grid grid-cols-1 md:grid-cols-6 lg:grid-cols-12 gap-gutter">
                 {/* Page Header (Full Width) */}
                 <div className="col-span-1 md:col-span-6 lg:col-span-12 mb-2 flex justify-between items-end">
                     <div>

@@ -22,7 +22,8 @@ import {
     BarChart3,
     Sliders,
     ArrowUpDown,
-    Download
+    Download,
+    Activity
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TimeRangeSelector, DateRangeState } from '../components/TimeRangeSelector';
@@ -625,6 +626,88 @@ export const ContributorAnalytics = () => {
             return dateStr;
         }
     };
+
+    // Calculate contributor five-dimensional parameters for radar chart
+    const radarScores = useMemo(() => {
+        if (!selectedContributor) return [];
+        
+        // 1. 提交频率 (Commit Frequency): scale commitments
+        const commitFreq = Math.round(Math.max(30, Math.min(100, 25 + (selectedContributor.commitsCount30d / 40) * 75)));
+        
+        // 2. 代码质量 (Code Quality): additions vs deletions ratio & density balance
+        const delRatio = selectedContributor.additions30d > 0 
+            ? selectedContributor.deletions30d / selectedContributor.additions30d 
+            : 1;
+        let qualityBase = 80;
+        if (delRatio >= 0.1 && delRatio <= 0.45) {
+            // Highly robust refactoring/clean style
+            qualityBase = 96 - Math.round(Math.abs(delRatio - 0.22) * 20);
+        } else if (delRatio > 0.45) {
+            // High removal/cleanup activity
+            qualityBase = Math.max(72, 92 - Math.round((delRatio - 0.45) * 12));
+        } else {
+            // Addition heavy without cleanup
+            qualityBase = Math.max(68, 75 + Math.round(delRatio * 45));
+        }
+        const codeQuality = Math.round(Math.min(100, qualityBase));
+
+        // 3. 影响力 (Impact): cumulative code volume influenced
+        const totalLines = selectedContributor.additions30d + selectedContributor.deletions30d;
+        const impact = Math.round(Math.max(35, Math.min(100, 30 + Math.log10(Math.max(totalLines, 10)) * 18.5)));
+
+        // 4. 协作广度 (Collaboration Breadth): projects count involvement
+        const projCount = selectedContributor.projects.length;
+        const collaboration = Math.round(Math.max(45, Math.min(100, 42 + projCount * 16.5)));
+
+        // 5. 技术活跃度 (Technical Activity): proximity of last date & release commits overlap
+        const lastCommitProximity = (() => {
+            try {
+                const lastDate = new Date(selectedContributor.lastCommitDate).getTime();
+                const now = new Date("2026-05-28T03:34:47Z").getTime();
+                const daysDiff = Math.max(0, (now - lastDate) / (1000 * 60 * 60 * 24));
+                return Math.max(55, 100 - Math.round(daysDiff * 3.5));
+            } catch {
+                return 80;
+            }
+        })();
+        const techActivity = Math.round(Math.max(48, Math.min(100, lastCommitProximity * 0.45 + (selectedContributor.commitsCount30d / 32) * 55)));
+
+        return [
+            { label: '提交频率', score: commitFreq, color: '#3b82f6', description: '代码高频稳健递交频次' },
+            { label: '代码质量', score: codeQuality, color: '#10b981', description: '新构与重构比重，反映重构质量与架构平衡感' },
+            { label: '影响力', score: impact, color: '#fbbf24', description: '物理总写入与移退规模在全仓的影响深浅' },
+            { label: '协作广度', score: collaboration, color: '#a855f7', description: '工程团队多仓库/微服务交叉开发协同率' },
+            { label: '技术活跃度', score: techActivity, color: '#f43f5e', description: '最后活跃近度与周期内吞吐高发活跃状态' }
+        ];
+    }, [selectedContributor]);
+
+    // Calculate pentagon points helper for 200x200 canvas
+    const getPentagonPointsStr = (scale: number) => {
+        const cx = 100;
+        const cy = 100;
+        const radius = 60;
+        return Array.from({ length: 5 }, (_, i) => {
+            const angle = -Math.PI / 2 + (i * 2 * Math.PI) / 5;
+            const x = cx + scale * radius * Math.cos(angle);
+            const y = cy + scale * radius * Math.sin(angle);
+            return `${x},${y}`;
+        }).join(' ');
+    };
+
+    // Calculate contributor point coordinates
+    const radarPointsString = useMemo(() => {
+        if (!radarScores || radarScores.length === 0) return '';
+        const cx = 100;
+        const cy = 100;
+        const radius = 60;
+        return radarScores.map((dim, i) => {
+            const angle = -Math.PI / 2 + (i * 2 * Math.PI) / 5;
+            const dist = (dim.score / 100) * radius;
+            const x = cx + dist * Math.cos(angle);
+            const y = cy + dist * Math.sin(angle);
+            return `${x},${y}`;
+        }).join(' ');
+    }, [radarScores]);
 
     if (error) {
         return (
@@ -1434,6 +1517,181 @@ export const ContributorAnalytics = () => {
                                                     <span>该协作者为「全能型仓库主导工程师」。其完美平衡特性新增与技术债清理，代码分布合理，具有极其稳健的开发特征。</span>
                                                 )}
                                             </p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Five-Dimensional Developer Performance Radar Chart Card */}
+                                <div className="bg-surface-bright border border-outline rounded-xl p-4 space-y-4">
+                                    <div className="flex items-center gap-2.5 pb-2.5 border-b border-outline-variant/60">
+                                        <div className="p-1.5 bg-[#6366f1]/10 text-[#6366f1] rounded-lg">
+                                            <Activity size={15} className="animate-pulse" />
+                                        </div>
+                                        <div>
+                                            <h4 className="text-xs font-bold text-on-surface">五维立体研发效能评价雷达</h4>
+                                            <p className="text-[10px] text-on-surface-variant font-medium mt-0.5">多因子折射：客观量化开发工程师在该周期内的复合效能贡献。</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-center">
+                                        {/* Radar SVG Visualizer Column (Span 5) */}
+                                        <div className="md:col-span-5 flex justify-center items-center py-2.5 bg-surface-container-lowest border border-outline-variant/40 rounded-xl relative">
+                                            <svg 
+                                                viewBox="0 0 200 200" 
+                                                className="w-full max-w-[170px] h-auto overflow-visible select-none"
+                                            >
+                                                <defs>
+                                                    <radialGradient id="radar-glow-radial" cx="50%" cy="50%" r="50%">
+                                                        <stop offset="0%" stopColor="#6366f1" stopOpacity="0.18" />
+                                                        <stop offset="100%" stopColor="#6366f1" stopOpacity="0.0" />
+                                                    </radialGradient>
+                                                </defs>
+
+                                                {/* Background Pentagon Area Glow */}
+                                                <polygon 
+                                                    points={getPentagonPointsStr(1.0)} 
+                                                    fill="url(#radar-glow-radial)" 
+                                                    stroke="none"
+                                                />
+
+                                                {/* Concentric Pentagons Grid (25%, 50%, 75%, 100%) */}
+                                                {[0.25, 0.5, 0.75, 1.0].map((scale) => (
+                                                    <polygon 
+                                                        key={scale}
+                                                        points={getPentagonPointsStr(scale)}
+                                                        fill="none"
+                                                        stroke="currentColor"
+                                                        className="text-on-surface-variant/30"
+                                                        strokeWidth={scale === 1.0 ? "1.2" : "0.7"}
+                                                        strokeDasharray={scale < 1.0 ? "3 3" : "none"}
+                                                    />
+                                                ))}
+
+                                                {/* Diagonal Axis Grid Reference Lines */}
+                                                {Array.from({ length: 5 }).map((_, i) => {
+                                                    const angle = -Math.PI / 2 + (i * 2 * Math.PI) / 5;
+                                                    const radiusVal = 60;
+                                                    const x = 100 + radiusVal * Math.cos(angle);
+                                                    const y = 100 + radiusVal * Math.sin(angle);
+                                                    return (
+                                                        <line 
+                                                            key={i} 
+                                                            x1={100} 
+                                                            y1={100} 
+                                                            x2={x} 
+                                                            y2={y} 
+                                                            stroke="currentColor" 
+                                                            className="text-on-surface-variant/30" 
+                                                            strokeWidth="0.8" 
+                                                            strokeDasharray="2 2" 
+                                                        />
+                                                    );
+                                                })}
+
+                                                {/* Render Main Area Score Polygon */}
+                                                <polygon 
+                                                    points={radarPointsString} 
+                                                    fill="rgba(99, 102, 241, 0.25)" 
+                                                    stroke="#6366f1" 
+                                                    strokeWidth="2" 
+                                                    className="transition-all duration-300"
+                                                />
+
+                                                {/* Target Data Vertex Points */}
+                                                {radarScores.map((dim, i) => {
+                                                    const angle = -Math.PI / 2 + (i * 2 * Math.PI) / 5;
+                                                    const dist = (dim.score / 100) * 60;
+                                                    const x = 100 + dist * Math.cos(angle);
+                                                    const y = 100 + dist * Math.sin(angle);
+                                                    return (
+                                                        <g key={i}>
+                                                            <circle 
+                                                                cx={x} 
+                                                                cy={y} 
+                                                                r="4" 
+                                                                fill="#ffffff" 
+                                                                stroke={dim.color} 
+                                                                strokeWidth="1.8" 
+                                                                style={{ filter: 'drop-shadow(0px 1px 2px rgba(0,0,0,0.25))' }}
+                                                            />
+                                                            <circle 
+                                                                cx={x} 
+                                                                cy={y} 
+                                                                r="1.5" 
+                                                                fill={dim.color} 
+                                                            />
+                                                        </g>
+                                                    );
+                                                })}
+
+                                                {/* Axis label texts */}
+                                                {radarScores.map((dim, i) => {
+                                                    const angle = -Math.PI / 2 + (i * 2 * Math.PI) / 5;
+                                                    const labelRadius = 60 + 13;
+                                                    const x = 100 + labelRadius * Math.cos(angle);
+                                                    const y = 100 + labelRadius * Math.sin(angle);
+                                                    
+                                                    let textAnchor = "middle";
+                                                    if (Math.cos(angle) > 0.1) textAnchor = "start";
+                                                    else if (Math.cos(angle) < -0.1) textAnchor = "end";
+
+                                                    // Vertical alignment tweaks
+                                                    let dy = "0.33em";
+                                                    if (Math.sin(angle) < -0.8) dy = "-0.2em";   // Top label
+                                                    else if (Math.sin(angle) > 0.8) dy = "0.75em"; // Bottom labels
+
+                                                    return (
+                                                        <g key={i}>
+                                                            <text 
+                                                                x={x} 
+                                                                y={y} 
+                                                                dy={dy}
+                                                                textAnchor={textAnchor}
+                                                                className="text-[9px] font-extrabold fill-on-surface"
+                                                            >
+                                                                {dim.label}
+                                                            </text>
+                                                            <text 
+                                                                x={x} 
+                                                                y={y + 8} 
+                                                                dy={dy}
+                                                                textAnchor={textAnchor}
+                                                                className="text-[8px] font-mono font-extrabold"
+                                                                style={{ fill: dim.color }}
+                                                            >
+                                                                {dim.score}%
+                                                            </text>
+                                                        </g>
+                                                    );
+                                                })}
+                                            </svg>
+                                        </div>
+
+                                        {/* Score Legend with Progress Bars (Span 7) */}
+                                        <div className="md:col-span-7 space-y-2.5">
+                                            {radarScores.map((dim, i) => (
+                                                <div key={i} className="flex flex-col gap-0.5">
+                                                    <div className="flex items-center justify-between text-[11px]">
+                                                        <span className="font-semibold flex items-center gap-1.5 text-on-surface">
+                                                            <span className="w-1.5 h-1.5 rounded-full shadow-sm shrink-0" style={{ backgroundColor: dim.color }} />
+                                                            {dim.label}
+                                                        </span>
+                                                        <span className="font-mono font-extrabold text-[#6366f1]">{dim.score}%</span>
+                                                    </div>
+                                                    
+                                                    {/* Custom progress bar */}
+                                                    <div className="w-full h-1 bg-outline-variant/50 rounded-full overflow-hidden">
+                                                        <div 
+                                                            className="h-full rounded-full transition-all duration-500 ease-out" 
+                                                            style={{ width: `${dim.score}%`, backgroundColor: dim.color }} 
+                                                        />
+                                                    </div>
+                                                    
+                                                    <span className="text-[9.5px] text-on-surface-variant font-medium leading-normal">
+                                                        {dim.description}
+                                                    </span>
+                                                </div>
+                                            ))}
                                         </div>
                                     </div>
                                 </div>

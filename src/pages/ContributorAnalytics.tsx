@@ -25,6 +25,7 @@ import {
     Download
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { TimeRangeSelector, DateRangeState } from '../components/TimeRangeSelector';
 
 type Contributor = {
     name: string;
@@ -77,6 +78,15 @@ type ProjectItem = {
 export const ContributorAnalytics = () => {
     // API Data state
     const [summary, setSummary] = useState<SummaryData | null>(null);
+    const [dateRange, setDateRange] = useState<DateRangeState>({
+        range: '30',
+        since: (() => {
+            const d = new Date();
+            d.setDate(d.getDate() - 30);
+            return d.toISOString().substring(0, 10);
+        })(),
+        until: new Date().toISOString().substring(0, 10)
+    });
     const [projects, setProjects] = useState<ProjectItem[]>([]);
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
@@ -105,15 +115,17 @@ export const ContributorAnalytics = () => {
     const dropdownRef = useRef<HTMLDivElement>(null);
     const dropdownOptionsRef = useRef<HTMLDivElement>(null);
 
-    // Fetch projects and summary data on mount
+    // Fetch projects and summary data whenever dateRange changes
     useEffect(() => {
         let isCancelled = false;
 
         const fetchData = async () => {
             try {
                 setIsLoading(true);
+                const sinceParam = dateRange.since ? `?since=${encodeURIComponent(dateRange.since)}` : '';
+                const untilParam = dateRange.until ? `&until=${encodeURIComponent(dateRange.until)}` : '';
                 const [summaryRes, projectsRes] = await Promise.all([
-                    fetch('/api/gitlab/summary'),
+                    fetch(`/api/gitlab/summary${sinceParam}${untilParam}`),
                     fetch('/api/gitlab/projects?limit=100')
                 ]);
 
@@ -143,7 +155,7 @@ export const ContributorAnalytics = () => {
         return () => {
             isCancelled = true;
         };
-    }, []);
+    }, [dateRange]);
 
     // Filter projects for search input dropdown
     const filteredProjectsList = useMemo(() => {
@@ -384,7 +396,7 @@ export const ContributorAnalytics = () => {
         }
 
         // Mock scale based on timeRange
-        if (selectedTimeRange === '90d') {
+        if (dateRange.range === '90' || selectedTimeRange === '90d') {
             // Take the last 3 months
             return {
                 labels: labels.slice(-3),
@@ -392,7 +404,20 @@ export const ContributorAnalytics = () => {
                 additions: additionsDataset.slice(-3),
                 deletions: deletionsDataset.slice(-3)
             };
-        } else if (selectedTimeRange === '30d') {
+        } else if (dateRange.range === '7') {
+            // Display daily granularity for the last 7 days from trends
+            const dailyCommits = summary.trends?.global?.daily || [2, 4, 3, 5, 4, 6, 5];
+            const dailyAdds = summary.trends?.global?.dailyLoc?.additions || [200, 350, 180, 480, 310, 520, 240];
+            const dailyDels = summary.trends?.global?.dailyLoc?.deletions || [12, 18, 10, 34, 15, 25, 20];
+            const dailyLabels = summary.monthLabels || ['1/1', '1/2', '1/3', '1/4', '1/5', '1/6', '1/7'];
+            
+            return {
+                labels: dailyLabels,
+                dataset: dailyCommits,
+                additions: dailyAdds,
+                deletions: dailyDels
+            };
+        } else if (dateRange.range === '30' || selectedTimeRange === '30d') {
             // Display weekly granularity derived from the dataset
             const lastMonthLabel = labels[labels.length - 1] || '当前月';
             return {
@@ -416,6 +441,14 @@ export const ContributorAnalytics = () => {
                     Math.round(deletionsDataset[deletionsDataset.length - 1] * 0.25)
                 ] : [25, 45, 180, 60]
             };
+        } else if (dateRange.range === 'custom') {
+            // For custom range, just output the server's monthLabels directly as daily trends
+            return {
+                labels: summary.monthLabels || ['起始', '结束'],
+                dataset: summary.trends?.global?.daily || [10, 15],
+                additions: summary.trends?.global?.dailyLoc?.additions || [1000, 1500],
+                deletions: summary.trends?.global?.dailyLoc?.deletions || [100, 150]
+            };
         }
 
         return {
@@ -424,7 +457,7 @@ export const ContributorAnalytics = () => {
             additions: additionsDataset,
             deletions: deletionsDataset
         };
-    }, [summary, selectedProjectId, selectedTimeRange]);
+    }, [summary, selectedProjectId, selectedTimeRange, dateRange]);
 
     // Plot values for line coordinates
     const chartRenderData = useMemo(() => {
@@ -703,26 +736,8 @@ export const ContributorAnalytics = () => {
                         </AnimatePresence>
                     </div>
 
-                    {/* Time Range Selector */}
-                    <div className="flex bg-surface-container border border-outline rounded-lg p-0.5">
-                        {(['30d', '90d', 'ytd'] as const).map((range) => {
-                            const label = range === '30d' ? '最近30天' : range === '90d' ? '上一季度' : '今年至今';
-                            const isActive = selectedTimeRange === range;
-                            return (
-                                <button
-                                    key={range}
-                                    onClick={() => setSelectedTimeRange(range)}
-                                    className={`px-3 py-1.5 text-xs font-semibold rounded-md cursor-pointer transition-all ${
-                                        isActive
-                                            ? 'bg-surface-bright text-primary shadow-sm'
-                                            : 'text-on-surface-variant hover:text-on-surface'
-                                    }`}
-                                >
-                                    {label}
-                                </button>
-                            );
-                        })}
-                    </div>
+                    {/* Unified Time Range Selector */}
+                    <TimeRangeSelector value={dateRange} onChange={setDateRange} />
                 </div>
             </div>
 

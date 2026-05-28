@@ -280,26 +280,50 @@ async function gitlabRequest<T>(endpoint: string): Promise<{ data: T; total?: nu
   };
 }
 
-function getMockProjectInsights(projectIdStr?: string) {
+function parseDateRange(sinceQuery: any, untilQuery: any) {
+  let sinceDate: Date;
+  let untilDate: Date = untilQuery ? new Date(String(untilQuery)) : new Date();
+  
+  if (sinceQuery) {
+    sinceDate = new Date(String(sinceQuery));
+  } else {
+    // Default to last 30 days
+    sinceDate = new Date();
+    sinceDate.setDate(sinceDate.getDate() - 30);
+  }
+  
+  // Make sure they are valid dates
+  if (isNaN(sinceDate.getTime())) {
+    sinceDate = new Date();
+    sinceDate.setDate(sinceDate.getDate() - 30);
+  }
+  if (isNaN(untilDate.getTime())) {
+    untilDate = new Date();
+  }
+  
+  // Diff in days
+  const diffTime = Math.abs(untilDate.getTime() - sinceDate.getTime());
+  const diffDays = Math.max(Math.ceil(diffTime / (1000 * 60 * 60 * 24)), 1);
+  
+  return { sinceDate, untilDate, diffDays, diffTime };
+}
+
+function getMockProjectInsights(projectIdStr?: string, sinceQuery?: any, untilQuery?: any) {
   const pId = projectIdStr || "frontend-framework";
+  const { sinceDate, untilDate, diffDays, diffTime } = parseDateRange(sinceQuery, untilQuery);
   
   // Define mock projects
   const mockProjects: { [key: string]: any } = {
     "frontend-framework": {
       name: "frontend-framework",
       fullName: "design-system/frontend-framework",
-      description: "企业级应用的核心 UI 组件库与统一设计系统实现，基于 React 18 与 Tailwind CSS 开发。",
+      description: "企业级应用的核心 UI 组件库与统一设计 system 实现，基于 React 18 与 Tailwind CSS 开发。",
       isActive: true,
       starCount: 24,
       visibility: "internal",
       language: "TypeScript",
       topics: ["React", "Design-System", "TailwindCSS"],
       commits: 2845,
-      growth: {
-        labels: ["12月", "1月", "2月", "3月", "4月", "5月"],
-        additions: [4500, 8950, 7200, 11000, 14200, 9500],
-        deletions: [400, 1200, 1800, 3100, 4200, 1500]
-      },
       topContributors: [
         { name: "Sarah Chen", username: "schen_dev", commits: 1204, seed: "sarah" },
         { name: "Alex Rivera", username: "arivera", commits: 856, seed: "alex" },
@@ -322,11 +346,6 @@ function getMockProjectInsights(projectIdStr?: string) {
       language: "Go",
       topics: ["Go", "gRPC", "Redis", "Rest-API"],
       commits: 1950,
-      growth: {
-        labels: ["12月", "1月", "2月", "3月", "4月", "5月"],
-        additions: [12000, 14000, 9000, 18000, 22000, 15000],
-        deletions: [3500, 2000, 5000, 8000, 5500, 6000]
-      },
       topContributors: [
         { name: "silencezhang", username: "silencezhang", commits: 940, seed: "silence" },
         { name: "johnwang", username: "johnwang", commits: 610, seed: "john" },
@@ -349,11 +368,6 @@ function getMockProjectInsights(projectIdStr?: string) {
       language: "Rust",
       topics: ["Rust", "Proxy", "Security", "Envoy"],
       commits: 840,
-      growth: {
-        labels: ["12月", "1月", "2月", "3月", "4月", "5月"],
-        additions: [3100, 2500, 1800, 4200, 3900, 2100],
-        deletions: [200, 400, 800, 1500, 900, 1100]
-      },
       topContributors: [
         { name: "silencezhang", username: "silencezhang", commits: 450, seed: "silence" },
         { name: "Jamie Doe", username: "jdoe99", commits: 250, seed: "jamie" },
@@ -374,11 +388,14 @@ function getMockProjectInsights(projectIdStr?: string) {
     selected = foundKey ? mockProjects[foundKey] : mockProjects["frontend-framework"];
   }
 
-  // Generate a deterministic heatmap for the last 52 weeks * 7 days
+  // Generate a deterministic heatmap for the duration requested
   const heatmapCells = [];
   const seedBase = pId.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
   
-  for (let index = 0; index < 52 * 7; index++) {
+  for (let index = 0; index < diffDays; index++) {
+    const d = new Date(sinceDate);
+    d.setDate(sinceDate.getDate() + index);
+    const dateStr = d.toISOString().substring(0, 10);
     const seed = (index * 9301 + 49297 + seedBase) % 233280;
     const normalized = seed / 233280;
     let activityLevel = 0;
@@ -388,10 +405,56 @@ function getMockProjectInsights(projectIdStr?: string) {
     if (normalized > 0.985) activityLevel = 4;
 
     heatmapCells.push({
+      date: dateStr,
       activityLevel,
       commits: Math.floor(normalized * 15)
     });
   }
+
+  // Generate dynamic growth additions/deletions/labels
+  const labels: string[] = [];
+  const additions: number[] = [];
+  const deletions: number[] = [];
+  
+  let steps = 6;
+  if (diffDays <= 7) {
+    steps = diffDays;
+  } else if (diffDays <= 30) {
+    steps = 6;
+  } else {
+    steps = 8;
+  }
+
+  for (let i = 0; i < steps; i++) {
+    const fraction = i / Math.max(steps - 1, 1);
+    const d = new Date(sinceDate.getTime() + fraction * diffTime);
+    
+    let dateLabel = "";
+    if (diffDays <= 15) {
+      dateLabel = `${d.getMonth() + 1}月${d.getDate()}日`;
+    } else if (diffDays <= 90) {
+      dateLabel = `${d.getMonth() + 1}月${d.getDate()}日`;
+    } else {
+      dateLabel = `${d.getMonth() + 1}月`;
+    }
+    labels.push(dateLabel);
+    
+    const seed = (i * 214013 + 2531011 + seedBase + diffDays) % 1999993;
+    const scaleFactor = diffDays <= 7 ? 0.2 : diffDays <= 30 ? 0.8 : diffDays <= 90 ? 2.5 : 5.0;
+    const addValue = Math.round(((seed % 1500) + 500) * scaleFactor);
+    const delValue = Math.round(((seed % 400) + 100) * scaleFactor);
+    additions.push(addValue);
+    deletions.push(delValue);
+  }
+
+  const dynamicContributors = selected.topContributors.map((c: any) => {
+    return {
+      ...c,
+      commits: Math.max(Math.round(c.commits * (diffDays / 365)), 1)
+    };
+  }).sort((a: any, b: any) => b.commits - a.commits);
+
+  const dynamicTotalCommits = Math.max(Math.round(selected.commits * (diffDays / 365)), 15);
 
   return {
     project: {
@@ -405,10 +468,14 @@ function getMockProjectInsights(projectIdStr?: string) {
       language: selected.language,
       topics: selected.topics
     },
-    totalCommits: selected.commits,
+    totalCommits: dynamicTotalCommits,
     heatmapCells,
-    growth: selected.growth,
-    topContributors: selected.topContributors,
+    growth: {
+      labels,
+      additions,
+      deletions
+    },
+    topContributors: dynamicContributors,
     branches: selected.branches
   };
 }
@@ -462,6 +529,137 @@ function getMockContributorCommits(projectIdStr?: string, authorName?: string, l
   };
 }
 
+function getMockGitLabSummary(groupId?: string, sinceQuery?: any, untilQuery?: any) {
+  const { sinceDate, untilDate, diffDays, diffTime } = parseDateRange(sinceQuery, untilQuery);
+  const factor = diffDays / 30; // standard index base of 30 days
+  
+  const totalProjects = 12;
+  const projectNames = ["frontend-framework", "backend-api", "gateway-service", "mobile-app", "data-analytics", "ci-pipeline"];
+  
+  const baseCommitsPerDay = 4.5;
+  const totalCommits = Math.max(Math.round(diffDays * baseCommitsPerDay * totalProjects * 0.4), 5);
+  
+  const baseContributors = [
+    { name: "silencezhang", username: "silencezhang", commits: 45, additions: 2800, deletions: 150 },
+    { name: "Sarah Chen", username: "schen_dev", commits: 40, additions: 2500, deletions: 80 },
+    { name: "Alex Rivera", username: "arivera", commits: 32, additions: 1800, deletions: 210 },
+    { name: "johnwang", username: "johnwang", commits: 24, additions: 1400, deletions: 70 },
+    { name: "Jamie Doe", username: "jdoe99", commits: 15, additions: 900, deletions: 120 },
+    { name: "linalee", username: "linalee", commits: 10, additions: 580, deletions: 45 },
+    { name: "Taylor Smith", username: "tsmith", commits: 6, additions: 320, deletions: 15 }
+  ];
+  
+  const contributorsList = baseContributors.map((c, idx) => {
+    const cCount = Math.max(Math.round(c.commits * factor), 1);
+    const addCount = Math.max(Math.round(c.additions * factor), 10);
+    const delCount = Math.max(Math.round(c.deletions * factor), 2);
+    
+    const pKeys = [];
+    if (idx % 2 === 0) pKeys.push("frontend-framework");
+    if (idx % 3 === 0) pKeys.push("backend-api");
+    if (pKeys.length === 0) pKeys.push("gateway-service");
+    
+    return {
+      name: c.name,
+      commitsCount30d: cCount,
+      additions30d: addCount,
+      deletions30d: delCount,
+      totalLoc30d: addCount + delCount,
+      projects: pKeys,
+      lastCommitDate: new Date(untilDate.getTime() - (idx * 6 * 3600 * 1000)).toISOString()
+    };
+  });
+  
+  const activeContributors = contributorsList.length;
+  const openMergeRequests = 4;
+  
+  const labels: string[] = [];
+  const dailyCommits: number[] = [];
+  const dailyAdds: number[] = [];
+  const dailyDels: number[] = [];
+  
+  // Decide steps of daily points
+  let dailySteps = Math.min(diffDays, 30);
+  for (let i = 0; i < dailySteps; i++) {
+    const fraction = i / Math.max(dailySteps - 1, 1);
+    const d = new Date(sinceDate.getTime() + fraction * diffTime);
+    labels.push(`${d.getMonth() + 1}/${d.getDate()}`);
+    
+    const seed = (i * 9301 + 49297) % 233280;
+    const normalized = seed / 233280;
+    const dayCommits = Math.floor(normalized * 8) + 1;
+    dailyCommits.push(dayCommits);
+    dailyAdds.push(dayCommits * 120 + (seed % 90));
+    dailyDels.push(dayCommits * 15 + (seed % 30));
+  }
+  
+  const monthlyCommits = Array(12).fill(0).map((_, i) => 80 + Math.floor(Math.sin(i * 0.5) * 30));
+  const monthlyAdds = monthlyCommits.map(c => c * 100);
+  const monthlyDels = monthlyCommits.map(c => c * 12);
+  
+  const weeklyCommits = Array(53).fill(0).map((_, i) => 20 + Math.floor(Math.sin(i * 0.2) * 8));
+  
+  const projectTrends = projectNames.map((pName, pIdx) => {
+    const pDailyCommits = dailyCommits.map((c) => Math.max(Math.round(c * (0.4 + (pIdx % 3) * 0.2)), 0));
+    const pDailyAdds = dailyAdds.map((a) => Math.max(Math.round(a * (0.4 + (pIdx % 3) * 0.2)), 0));
+    const pDailyDels = dailyDels.map((d) => Math.max(Math.round(d * (0.4 + (pIdx % 3) * 0.2)), 0));
+    
+    return {
+      id: 100 + pIdx,
+      name: `group/${pName}`,
+      shortName: pName,
+      monthly: monthlyCommits.map(c => Math.max(Math.round(c * (0.4 + (pIdx % 3) * 0.2)), 0)),
+      weekly: weeklyCommits.map(c => Math.max(Math.round(c * (0.4 + (pIdx % 3) * 0.2)), 0)),
+      daily: pDailyCommits,
+      monthlyLoc: {
+        additions: monthlyAdds.map(a => Math.max(Math.round(a * (0.4 + (pIdx % 3) * 0.2)), 0)),
+        deletions: monthlyDels.map(d => Math.max(Math.round(d * (0.4 + (pIdx % 3) * 0.2)), 0))
+      },
+      dailyLoc: {
+        additions: pDailyAdds,
+        deletions: pDailyDels
+      }
+    };
+  });
+  
+  const topProjects = projectNames.slice(0, 5).map((pName, pIdx) => {
+    return {
+      id: 100 + pIdx,
+      name: `group/${pName}`,
+      webUrl: `https://gitlab.com/group/${pName}`,
+      commits30d: Math.max(Math.round((pIdx === 0 ? 124 : pIdx === 1 ? 86 : pIdx === 2 ? 64 : 32) * factor), 1),
+      lastActivityAt: new Date(untilDate.getTime() - pIdx * 4 * 3600 * 1000).toISOString()
+    };
+  });
+  
+  return {
+    generatedAt: new Date().toISOString(),
+    totalProjects,
+    totalCommits,
+    activeContributors,
+    openMergeRequests,
+    monthLabels: labels.length <= 12 ? labels : MONTH_LABELS,
+    trends: {
+      global: {
+        monthly: monthlyCommits,
+        weekly: weeklyCommits,
+        daily: dailyCommits,
+        monthlyLoc: { additions: monthlyAdds, deletions: monthlyDels },
+        dailyLoc: { additions: dailyAdds, deletions: dailyDels },
+        yearlyLoc: {
+          years: ["2024年", "2025年", "2026年"],
+          commits: [1420, 1845, Math.max(totalCommits, 10)],
+          additions: [84000, 120000, Math.max(totalCommits * 100, 1000)],
+          deletions: [8200, 14000, Math.max(totalCommits * 12, 120)]
+        }
+      },
+      projects: projectTrends
+    },
+    contributorsList,
+    topProjects
+  };
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3001;
@@ -481,7 +679,7 @@ async function startServer() {
 
       if (!hasCredentials) {
         // Fallback to beautiful mock data for sandbox mode
-        return res.json(getMockProjectInsights(projectIdStr));
+        return res.json(getMockProjectInsights(projectIdStr, req.query.since, req.query.until));
       }
 
       // If credentials exist, build real GitLab dynamic insights!
@@ -662,7 +860,7 @@ async function startServer() {
     } catch (error) {
       console.error("Failed fetching project insights:", error);
       const projectIdStr = typeof req.query.projectId === 'string' && req.query.projectId ? req.query.projectId : undefined;
-      res.json(getMockProjectInsights(projectIdStr));
+      res.json(getMockProjectInsights(projectIdStr, req.query.since, req.query.until));
     }
   });
 
@@ -738,8 +936,17 @@ async function startServer() {
 
   app.get("/api/gitlab/summary", async (req, res) => {
     try {
-      const now = new Date();
+      const gitlabUrl = process.env.GITLAB_URL;
+      const privateToken = process.env.PRIVATE_TOKEN;
+      const hasCredentials = gitlabUrl && privateToken;
+
       const groupId = typeof req.query.groupId === 'string' && req.query.groupId ? req.query.groupId : undefined;
+
+      if (!hasCredentials) {
+        return res.json(getMockGitLabSummary(groupId, req.query.since, req.query.until));
+      }
+
+      const now = new Date();
       
       // Limit to top 30 active projects for trend and metrics calculation
       const { projects, total: totalProjects } = await fetchAllGitLabProjects(groupId, 30);
@@ -918,8 +1125,9 @@ async function startServer() {
           })),
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown GitLab error";
-      res.status(500).json({ error: message });
+      console.warn("Failed fetching project summary from GitLab, falling back to mock summary:", error);
+      const groupId = typeof req.query.groupId === 'string' && req.query.groupId ? req.query.groupId : undefined;
+      res.json(getMockGitLabSummary(groupId, req.query.since, req.query.until));
     }
   });
 

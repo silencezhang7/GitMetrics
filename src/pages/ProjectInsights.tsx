@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { TimeRangeSelector, DateRangeState } from '../components/TimeRangeSelector';
 
 type ProjectItem = {
     id: string | number;
@@ -68,6 +69,15 @@ type ProjectInsightsType = {
 
 export const ProjectInsights = () => {
     const [searchParams, setSearchParams] = useSearchParams();
+    const [dateRange, setDateRange] = useState<DateRangeState>({
+        range: '30',
+        since: (() => {
+            const d = new Date();
+            d.setDate(d.getDate() - 30);
+            return d.toISOString().substring(0, 10);
+        })(),
+        until: new Date().toISOString().substring(0, 10)
+    });
     const [projects, setProjects] = useState<ProjectItem[]>([]);
     const [selectedProjectId, setSelectedProjectId] = useState<string>('');
     const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
@@ -200,7 +210,7 @@ export const ProjectInsights = () => {
         }
     }, [searchParams, projects, isProjectsLoading]);
 
-    // Fetch insights data whenever selectedProjectId changes
+    // Fetch insights data whenever selectedProjectId or dateRange changes
     useEffect(() => {
         if (!selectedProjectId) return;
 
@@ -209,7 +219,9 @@ export const ProjectInsights = () => {
             setIsLoading(true);
             setError(null);
             try {
-                const res = await fetch(`/api/gitlab/project-insights?projectId=${encodeURIComponent(selectedProjectId)}`);
+                const sinceParam = dateRange.since ? `&since=${encodeURIComponent(dateRange.since)}` : '';
+                const untilParam = dateRange.until ? `&until=${encodeURIComponent(dateRange.until)}` : '';
+                const res = await fetch(`/api/gitlab/project-insights?projectId=${encodeURIComponent(selectedProjectId)}${sinceParam}${untilParam}`);
                 if (!res.ok) {
                     throw new Error('加载项目洞察详情失败');
                 }
@@ -232,7 +244,7 @@ export const ProjectInsights = () => {
         return () => {
             active = false;
         };
-    }, [selectedProjectId]);
+    }, [selectedProjectId, dateRange]);
 
     const filteredProjects = useMemo(() => {
         return projects.filter(project => {
@@ -449,7 +461,8 @@ export const ProjectInsights = () => {
                 </div>
 
                 {/* Sub status row */}
-                <div className="flex items-center gap-3 shrink-0 self-start md:self-end mt-2 md:mt-0">
+                <div className="flex items-center gap-3 shrink-0 self-start md:self-end mt-2 md:mt-0 flex-wrap">
+                    <TimeRangeSelector value={dateRange} onChange={setDateRange} />
                     <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-[#1e293b] border border-outline text-[#38bdf8]">
                         <span className="w-2 h-2 rounded-full bg-tertiary mr-2 animate-pulse"></span> 实时追踪中
                     </span>

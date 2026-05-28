@@ -379,7 +379,7 @@ export const ProjectInsights = () => {
     }, [projects, selectedProjectId]);
 
     return (
-        <main id="project-insights-page" className="flex-1 p-margin-md md:p-margin-lg lg:p-10 max-w-7xl mx-auto w-full text-on-background">
+        <main id="project-insights-page" className="flex-1 p-margin-sm md:p-margin-md lg:p-margin-lg bg-background w-full text-on-background">
             {/* Page Header */}
             <div className="flex flex-col md:flex-row md:items-start justify-between gap-6 mb-8 border-b border-outline-variant/60 pb-6">
                 <div className="relative flex-1 min-w-0">

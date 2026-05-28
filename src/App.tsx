@@ -9,6 +9,7 @@ import { GlobalDashboard } from './pages/GlobalDashboard';
 import { ProjectInsights } from './pages/ProjectInsights';
 import { ContributorAnalytics } from './pages/ContributorAnalytics';
 import { DeveloperProfile } from './pages/DeveloperProfile';
+import { AICodeAnalytics } from './pages/AICodeAnalytics';
 
 export default function App() {
   return (
@@ -19,6 +20,7 @@ export default function App() {
           <Route path="/project-insights" element={<ProjectInsights />} />
           <Route path="/contributor-analytics" element={<ContributorAnalytics />} />
           <Route path="/developer-profile" element={<DeveloperProfile />} />
+          <Route path="/ai-code-analytics" element={<AICodeAnalytics />} />
         </Routes>
       </AppLayout>
     </BrowserRouter>

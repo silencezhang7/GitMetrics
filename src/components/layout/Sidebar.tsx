@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, LineChart, Users, User, BookOpen, HelpCircle, Code } from 'lucide-react';
+import { LayoutDashboard, LineChart, Users, User, BookOpen, HelpCircle, Code, Sparkles } from 'lucide-react';
 
 export const Sidebar = () => {
     return (
@@ -75,6 +75,22 @@ export const Sidebar = () => {
                         <>
                             <User size={18} className={`transition-transform duration-200 ${isActive ? 'text-primary' : 'text-on-surface-variant group-hover:scale-105'}`}/>
                             <span>开发者个人详情</span>
+                        </>
+                    )}
+                </NavLink>
+
+                <NavLink 
+                    to="/ai-code-analytics" 
+                    className={({isActive}) => `flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-[13px] font-medium tracking-wide transition-all duration-200 group border-l-[3px] ${
+                        isActive 
+                            ? 'bg-primary/10 border-primary text-primary-fixed shadow-sm' 
+                            : 'border-transparent text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest/50 hover:translate-x-1'
+                    }`}
+                >
+                    {({isActive}) => (
+                        <>
+                            <Sparkles size={18} className={`transition-transform duration-200 ${isActive ? 'text-primary' : 'text-on-surface-variant group-hover:scale-105'}`}/>
+                            <span>AI辅助效能评估</span>
                         </>
                     )}
                 </NavLink>

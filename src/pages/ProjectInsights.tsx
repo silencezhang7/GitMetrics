@@ -486,12 +486,7 @@ export const ProjectInsights = () => {
             </div>
 
             {/* Loading / Error overlay wrapper */}
-            {isLoading ? (
-                <div className="h-96 flex flex-col items-center justify-center gap-4 text-on-surface-variant bg-surface-container-lowest border border-outline-variant/40 rounded-2xl animate-pulse">
-                    <Loader2 size={36} className="animate-spin text-primary" />
-                    <p className="font-body-md text-body-md text-center">正在加载项目多维动态分析指标数据，请稍后...</p>
-                </div>
-            ) : error ? (
+            {error ? (
                 <div className="h-96 flex flex-col items-center justify-center gap-4 text-error bg-surface-container-lowest border border-error-container/30 rounded-2xl p-6">
                     <XCircle size={44} />
                     <p className="font-body-md text-body-md font-semibold">数据获取遇到障碍</p>
@@ -503,7 +498,7 @@ export const ProjectInsights = () => {
                         重试加载
                     </button>
                 </div>
-            ) : !insights ? (
+            ) : !insights && !isLoading ? (
                 <div className="h-96 flex flex-col items-center justify-center gap-3 text-on-surface-variant bg-surface-container-lowest border border-outline-variant/40 rounded-2xl">
                     <FolderOpen size={40} className="opacity-40" />
                     <p className="font-body-md text-body-md">请选择一个有效的项目进行评估</p>
@@ -520,7 +515,7 @@ export const ProjectInsights = () => {
                             </h3>
                             <div className="font-body-sm text-body-sm text-on-surface-variant flex items-center gap-4 shrink-0 flex-wrap">
                                 <span className="font-mono text-primary font-semibold text-xs py-0.5 px-2 bg-surface border border-outline rounded">
-                                    总提交：{insights.totalCommits || 0}
+                                    总提交：{isLoading ? "..." : (insights?.totalCommits || 0)}
                                 </span>
                                 <div className="flex items-center gap-1.5 text-[10px]">
                                     较少
@@ -534,13 +529,23 @@ export const ProjectInsights = () => {
                         
                         <div className="overflow-x-auto pb-2 custom-scrollbar">
                             <div className="grid grid-rows-[repeat(7,1fr)] grid-flow-col auto-cols-min gap-[3.5px] min-w-[700px] p-1">
-                                {insights.heatmapCells.map((cell, index) => (
-                                    <div
-                                        key={index}
-                                        className={`w-[10.5px] h-[10.5px] rounded-[2px] transition-all hover:scale-130 cursor-crosshair border border-outline/10 ${heatmapColorClasses[cell.activityLevel]}`}
-                                        title={cell.date ? `${cell.date}: 提交 ${cell.commits} 次` : `提交 ${cell.commits} 次`}
-                                    />
-                                ))}
+                                {isLoading ? (
+                                    Array.from({ length: 84 }).map((_, index) => (
+                                        <div
+                                            key={index}
+                                            className="w-[10.5px] h-[10.5px] rounded-[2px] bg-on-surface-variant/10 animate-pulse"
+                                            style={{ animationDelay: `${(index % 12) * 50}ms` }}
+                                        />
+                                    ))
+                                ) : (
+                                    insights?.heatmapCells.map((cell, index) => (
+                                        <div
+                                            key={index}
+                                            className={`w-[10.5px] h-[10.5px] rounded-[2px] transition-all hover:scale-130 cursor-crosshair border border-outline/10 ${heatmapColorClasses[cell.activityLevel]}`}
+                                            title={cell.date ? `${cell.date}: 提交 ${cell.commits} 次` : `提交 ${cell.commits} 次`}
+                                        />
+                                    ))
+                                )}
                             </div>
                         </div>
                     </div>
@@ -562,7 +567,18 @@ export const ProjectInsights = () => {
                             </select>
                         </div>
 
-                        {svgData ? (
+                        {isLoading ? (
+                            <div className="flex-1 min-h-[260px] w-full flex items-end pt-4 pb-2">
+                                <div className="h-[220px] ml-12 mb-7 relative flex items-end gap-6 w-full pr-6 justify-between">
+                                    {Array.from({ length: 6 }).map((_, index) => (
+                                        <div key={index} className="flex-1 flex flex-col items-center gap-2 h-full justify-end">
+                                            <div className="w-full bg-[#10b981]/15 rounded-t animate-pulse" style={{ height: `${20 + index * 12}%`, animationDelay: `${index * 100}ms` }} />
+                                            <div className="w-full bg-[#ef4444]/15 rounded-t animate-pulse" style={{ height: `${10 + index * 6}%`, animationDelay: `${index * 120}ms` }} />
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        ) : svgData ? (
                             <div className="flex-1 relative min-h-[260px] w-full flex items-end pt-4 pb-2">
                                 {/* Grid reference lines */}
                                 <div className="absolute inset-0 pl-12 pb-7 pointer-events-none">
@@ -700,7 +716,7 @@ export const ProjectInsights = () => {
                             </div>
                         )}
 
-                        <div className="flex items-center gap-6 text-[11px] font-medium text-on-surface-variant mx-12 mb-3 mt-1.5">
+                        <div className="flex items-center gap-6 text-[11px] font-medium text-on-surface-variant mx-12 mb-3 mt-1.5 font-sans">
                             <span className="flex items-center gap-1.5">
                                 <span className="w-3 h-1.5 rounded-full bg-[#10b981]"></span>
                                 增加了的代码 LOC (Additions)
@@ -723,47 +739,59 @@ export const ProjectInsights = () => {
                         
                         <div className="flex-1 overflow-y-auto max-h-[290px] pr-1.5 custom-scrollbar">
                             <ul className="flex flex-col gap-3.5">
-                                {insights.topContributors && insights.topContributors.map((c, idx) => {
-                                    // Make avatars beautiful with consistent colored classes
-                                    const devColors = [
-                                        'bg-blue-500/10 text-blue-400 border-blue-500/30',
-                                        'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
-                                        'bg-purple-500/10 text-purple-400 border-purple-500/30',
-                                        'bg-amber-500/10 text-amber-400 border-amber-500/30'
-                                    ];
-                                    const avatarClass = devColors[idx % devColors.length];
-                                    const letter = c.name.substring(0, 1).toUpperCase();
-
-                                    let trophy = '';
-                                    if (idx === 0) trophy = '🥇';
-                                    else if (idx === 1) trophy = '🥈';
-                                    else if (idx === 2) trophy = '🥉';
-
-                                    return (
-                                        <li key={c.name} onClick={() => setSelectedContributor(c)} className="flex items-center justify-between p-2.5 hover:bg-surface-container-low rounded-lg border border-transparent hover:border-outline hover:shadow-xs transition-all group cursor-pointer" title="点击查看详细提交历史记录">
-                                            <div className="flex items-center gap-3 min-w-0">
-                                                <div className={`w-8.5 h-8.5 rounded-full flex items-center justify-center border font-mono font-bold text-xs shrink-0 shadow-inner ${avatarClass}`}>
-                                                    {letter}
+                                {isLoading ? (
+                                    Array.from({ length: 4 }).map((_, idx) => (
+                                        <li key={idx} className="flex items-center justify-between p-2.5 rounded-lg border border-transparent">
+                                            <div className="flex items-center gap-3 w-full">
+                                                <div className="w-8.5 h-8.5 rounded-full bg-on-surface-variant/15 animate-pulse shrink-0" />
+                                                <div className="flex-1 space-y-1.5">
+                                                    <div className="h-3.5 bg-on-surface-variant/20 animate-pulse rounded w-1/2" />
+                                                    <div className="h-2.5 bg-on-surface-variant/10 animate-pulse rounded w-1/3" />
                                                 </div>
-                                                <div className="min-w-0">
-                                                    <div className="flex items-center gap-1.5">
-                                                        <p className="font-body-md text-xs font-bold text-on-surface group-hover:text-primary transition-colors truncate">
-                                                            {c.name}
-                                                        </p>
-                                                        {trophy && <span className="text-[10px] select-none">{trophy}</span>}
-                                                    </div>
-                                                    <p className="font-body-sm text-[10px] text-on-surface-variant font-mono">@{c.username}</p>
-                                                </div>
-                                            </div>
-                                            <div className="text-right shrink-0">
-                                                <p className="font-code-md text-xs font-semibold text-primary font-mono">{c.commits}</p>
-                                                <p className="font-label-caps text-[9px] text-on-surface-variant">COMMITS</p>
                                             </div>
                                         </li>
-                                    );
-                                })}
+                                    ))
+                                ) : insights?.topContributors && insights.topContributors.length > 0 ? (
+                                    insights.topContributors.map((c, idx) => {
+                                        // Make avatars beautiful with consistent colored classes
+                                        const devColors = [
+                                            'bg-blue-500/10 text-blue-400 border-blue-500/30',
+                                            'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
+                                            'bg-purple-500/10 text-purple-400 border-purple-500/30',
+                                            'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                                        ];
+                                        const avatarClass = devColors[idx % devColors.length];
+                                        const letter = c.name.substring(0, 1).toUpperCase();
 
-                                {(!insights.topContributors || insights.topContributors.length === 0) && (
+                                        let trophy = '';
+                                        if (idx === 0) trophy = '🥇';
+                                        else if (idx === 1) trophy = '🥈';
+                                        else if (idx === 2) trophy = '🥉';
+
+                                        return (
+                                            <li key={c.name} onClick={() => setSelectedContributor(c)} className="flex items-center justify-between p-2.5 hover:bg-surface-container-low rounded-lg border border-transparent hover:border-outline hover:shadow-xs transition-all group cursor-pointer" title="点击查看详细提交历史记录">
+                                                <div className="flex items-center gap-3 min-w-0">
+                                                    <div className={`w-8.5 h-8.5 rounded-full flex items-center justify-center border font-mono font-bold text-xs shrink-0 shadow-inner ${avatarClass}`}>
+                                                        {letter}
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <div className="flex items-center gap-1.5">
+                                                            <p className="font-body-md text-xs font-bold text-on-surface group-hover:text-primary transition-colors truncate">
+                                                                {c.name}
+                                                            </p>
+                                                            {trophy && <span className="text-[10px] select-none">{trophy}</span>}
+                                                        </div>
+                                                        <p className="font-body-sm text-[10px] text-on-surface-variant font-mono">@{c.username}</p>
+                                                    </div>
+                                                </div>
+                                                <div className="text-right shrink-0">
+                                                    <p className="font-code-md text-xs font-semibold text-primary font-mono">{c.commits}</p>
+                                                    <p className="font-label-caps text-[9px] text-on-surface-variant">COMMITS</p>
+                                                </div>
+                                            </li>
+                                        );
+                                    })
+                                ) : (
                                     <div className="py-20 text-center text-xs text-on-surface-variant">
                                         暂无活跃贡献者列表相关数据
                                     </div>
@@ -780,7 +808,7 @@ export const ProjectInsights = () => {
                                 仓库活跃分支健康状态
                             </h3>
                             <span className="font-body-sm text-xs text-on-surface-variant font-mono">
-                                活跃的分支：{insights.branches ? insights.branches.length : 0}
+                                活跃的分支：{isLoading ? "..." : (insights?.branches ? insights.branches.length : 0)}
                             </span>
                         </div>
                         
@@ -794,71 +822,88 @@ export const ProjectInsights = () => {
                                     </tr>
                                 </thead>
                                 <tbody className="font-body-sm text-xs">
-                                    {insights.branches && insights.branches.map((b) => {
-                                        let statusNode = null;
-                                        if (b.status === 'Passing') {
-                                            statusNode = (
-                                                <span className="inline-flex items-center gap-1.5 text-emerald-500 font-semibold uppercase text-[10px] bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                                                    <CheckCircle size={12} /> Passing
-                                                </span>
-                                            );
-                                        } else if (b.status === 'In Review') {
-                                            statusNode = (
-                                                <span className="inline-flex items-center gap-1.5 text-amber-500 font-semibold uppercase text-[10px] bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
-                                                    <Clock size={12} /> In Review
-                                                </span>
-                                            );
-                                        } else {
-                                            statusNode = (
-                                                <span className="inline-flex items-center gap-1.5 text-error font-semibold uppercase text-[10px] bg-error-container text-on-error-container px-2 py-0.5 rounded border border-error/20">
-                                                    <XCircle size={12} /> Failing
-                                                </span>
-                                            );
-                                        }
-
-                                        const lastCommitDateFormatted = () => {
-                                            try {
-                                                const d = new Date(b.lastCommitTime);
-                                                return d.toLocaleDateString('zh-CN', {
-                                                    month: 'numeric',
-                                                    day: 'numeric',
-                                                    hour: '2-digit',
-                                                    minute: '2-digit'
-                                                });
-                                            } catch {
-                                                return b.lastCommitTime;
-                                            }
-                                        };
-
-                                        return (
-                                            <tr key={b.name} className="border-b border-outline-variant/45 last:border-0 hover:bg-surface-bright transition-colors group">
+                                    {isLoading ? (
+                                        Array.from({ length: 4 }).map((_, idx) => (
+                                            <tr key={idx} className="border-b border-outline-variant/45">
                                                 <td className="py-3 px-3.5">
                                                     <div className="flex items-center gap-2">
-                                                        <GitBranch size={14} className="text-on-surface-variant shrink-0" />
-                                                        <span className="font-mono font-bold text-primary group-hover:text-primary-fixed transition-colors truncate max-w-[220px]">
-                                                            {b.name}
-                                                        </span>
-                                                        {b.isDefault && (
-                                                            <span className="bg-surface border border-outline text-on-surface-variant text-[9px] px-1.5 py-0.2 rounded font-medium select-none">
-                                                                默认主分支
-                                                            </span>
-                                                        )}
+                                                        <div className="w-3.5 h-3.5 bg-on-surface-variant/15 animate-pulse rounded shrink-0" />
+                                                        <div className="h-3.5 bg-on-surface-variant/20 animate-pulse rounded w-36" />
                                                     </div>
                                                 </td>
                                                 <td className="py-3 px-3.5">
-                                                    {statusNode}
+                                                    <div className="h-5 bg-on-surface-variant/15 animate-pulse rounded w-16" />
                                                 </td>
-                                                <td className="py-3 px-3.5 text-on-surface-variant font-medium">
-                                                    <span className="font-mono text-[10px] opacity-75">{lastCommitDateFormatted()}</span>
-                                                    <span> 由 </span>
-                                                    <span className="font-bold text-on-surface text-[11px]">@{b.lastCommitAuthor}</span>
-                                                    <span> 提交</span>
+                                                <td className="py-3 px-3.5">
+                                                    <div className="h-3.5 bg-on-surface-variant/15 animate-pulse rounded w-48" />
                                                 </td>
                                             </tr>
-                                        );
-                                    })}
+                                        ))
+                                    ) : insights?.branches && insights.branches.length > 0 ? (
+                                        insights.branches.map((b) => {
+                                            let statusNode = null;
+                                            if (b.status === 'Passing') {
+                                                statusNode = (
+                                                    <span className="inline-flex items-center gap-1.5 text-emerald-500 font-semibold uppercase text-[10px] bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                                                        <CheckCircle size={12} /> Passing
+                                                    </span>
+                                                );
+                                            } else if (b.status === 'In Review') {
+                                                statusNode = (
+                                                    <span className="inline-flex items-center gap-1.5 text-amber-500 font-semibold uppercase text-[10px] bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                                                        <Clock size={12} /> In Review
+                                                    </span>
+                                                );
+                                            } else {
+                                                statusNode = (
+                                                    <span className="inline-flex items-center gap-1.5 text-error font-semibold uppercase text-[10px] bg-error-container text-on-error-container px-2 py-0.5 rounded border border-error/20">
+                                                        <XCircle size={12} /> Failing
+                                                    </span>
+                                                );
+                                            }
 
-                                    {(!insights.branches || insights.branches.length === 0) && (
+                                            const lastCommitDateFormatted = () => {
+                                                try {
+                                                    const d = new Date(b.lastCommitTime);
+                                                    return d.toLocaleDateString('zh-CN', {
+                                                        month: 'numeric',
+                                                        day: 'numeric',
+                                                        hour: '2-digit',
+                                                        minute: '2-digit'
+                                                    });
+                                                } catch {
+                                                    return b.lastCommitTime;
+                                                }
+                                            };
+
+                                            return (
+                                                <tr key={b.name} className="border-b border-outline-variant/45 last:border-0 hover:bg-surface-bright transition-colors group">
+                                                    <td className="py-3 px-3.5">
+                                                        <div className="flex items-center gap-2">
+                                                            <GitBranch size={14} className="text-on-surface-variant shrink-0" />
+                                                            <span className="font-mono font-bold text-primary group-hover:text-primary-fixed transition-colors truncate max-w-[220px]">
+                                                                {b.name}
+                                                            </span>
+                                                            {b.isDefault && (
+                                                                <span className="bg-surface border border-outline text-on-surface-variant text-[9px] px-1.5 py-0.2 rounded font-medium select-none">
+                                                                    默认主分支
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </td>
+                                                    <td className="py-3 px-3.5">
+                                                        {statusNode}
+                                                    </td>
+                                                    <td className="py-3 px-3.5 text-on-surface-variant font-medium">
+                                                        <span className="font-mono text-[10px] opacity-75">{lastCommitDateFormatted()}</span>
+                                                        <span> 由 </span>
+                                                        <span className="font-bold text-on-surface text-[11px]">@{b.lastCommitAuthor}</span>
+                                                        <span> 提交</span>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })
+                                    ) : (
                                         <tr>
                                             <td colSpan={3} className="py-8 text-center text-xs text-on-surface-variant">
                                                 未发现任何活跃的分支
@@ -869,8 +914,8 @@ export const ProjectInsights = () => {
                             </table>
                         </div>
                     </div>
-                 </div>
-             )}
+                </div>
+            )}
 
             {/* Contributor Commits Slide-Over Modal Drawer */}
             {selectedContributor && (

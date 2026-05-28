@@ -824,132 +824,156 @@ export const ContributorAnalytics = () => {
                 </div>
             </div>
 
-            {isLoading ? (
-                <div className="flex flex-col items-center justify-center py-20 gap-3">
-                    <Loader2 size={32} className="text-primary animate-spin" />
-                    <p className="text-on-surface-variant font-code-md text-xs">正在分析团队效能仓库，请稍后...</p>
-                </div>
-            ) : (
-                <div className="space-y-margin-sm">
-                    {/* Bento Grid KPIs & MVP Spot */}
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-margin-sm">
-                        {/* KPI Block (Left Side/6 Cols) */}
-                        <div className="col-span-1 lg:col-span-8 grid grid-cols-1 md:grid-cols-3 gap-margin-sm">
-                            {/* Card 1: Active Contributors */}
-                            <motion.div 
-                                whileHover={{ y: -2 }}
-                                className="bg-surface-bright border border-outline rounded-xl p-4 flex flex-col justify-between"
-                            >
-                                <div className="flex justify-between items-start">
-                                    <span className="font-label-caps text-label-caps text-on-surface-variant">活跃协作者</span>
-                                    <div className="p-1.5 bg-primary/10 rounded text-primary">
-                                        <Users size={14} />
-                                    </div>
+            <div className="space-y-margin-sm">
+                {/* Bento Grid KPIs & MVP Spot */}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-margin-sm">
+                    {/* KPI Block (Left Side/6 Cols) */}
+                    <div className="col-span-1 lg:col-span-8 grid grid-cols-1 md:grid-cols-3 gap-margin-sm">
+                        {/* Card 1: Active Contributors */}
+                        <motion.div 
+                            whileHover={{ y: -2 }}
+                            className="bg-surface-bright border border-outline rounded-xl p-4 flex flex-col justify-between"
+                        >
+                            <div className="flex justify-between items-start">
+                                <span className="font-label-caps text-label-caps text-on-surface-variant">活跃协作者</span>
+                                <div className="p-1.5 bg-primary/10 rounded text-primary">
+                                    <Users size={14} />
                                 </div>
-                                <div className="mt-4">
-                                    <h3 className="font-headline-lg text-headline-lg text-on-surface">{statsSummary.activeCount} <span className="text-xs text-on-surface-variant font-normal">位开发</span></h3>
-                                    <p className="font-body-sm text-body-sm text-secondary flex items-center gap-1 mt-1 font-semibold">
-                                        <ArrowUp size={12} /> +15.5% <span className="text-on-surface-variant font-medium font-sans">环比上涨</span>
-                                    </p>
-                                </div>
-                            </motion.div>
+                            </div>
+                            <div className="mt-4">
+                                <h3 className="font-headline-lg text-headline-lg text-on-surface">
+                                    {isLoading ? (
+                                        <span className="inline-block w-12 h-8 bg-on-surface-variant/15 rounded animate-pulse" />
+                                    ) : (
+                                        statsSummary.activeCount
+                                    )} <span className="text-xs text-on-surface-variant font-normal">位开发</span>
+                                </h3>
+                                <p className="font-body-sm text-body-sm text-secondary flex items-center gap-1 mt-1 font-semibold">
+                                    <ArrowUp size={12} /> +15.5% <span className="text-on-surface-variant font-medium font-sans">环比上涨</span>
+                                </p>
+                            </div>
+                        </motion.div>
 
-                            {/* Card 2: Code velocity Additions vs Deletions ratio */}
-                            <motion.div 
-                                whileHover={{ y: -2 }}
-                                className="bg-surface-bright border border-outline rounded-xl p-4 flex flex-col justify-between"
-                            >
-                                <div className="flex justify-between items-start">
-                                    <span className="font-label-caps text-label-caps text-on-surface-variant">代码健康比 (新构/重构)</span>
-                                    <div className="p-1.5 bg-secondary/10 rounded text-secondary">
-                                        <Sliders size={14} />
-                                    </div>
+                        {/* Card 2: Code velocity Additions vs Deletions ratio */}
+                        <motion.div 
+                            whileHover={{ y: -2 }}
+                            className="bg-surface-bright border border-outline rounded-xl p-4 flex flex-col justify-between"
+                        >
+                            <div className="flex justify-between items-start">
+                                <span className="font-label-caps text-label-caps text-on-surface-variant">代码健康比 (新构/重构)</span>
+                                <div className="p-1.5 bg-secondary/10 rounded text-secondary">
+                                    <Sliders size={14} />
                                 </div>
-                                <div className="mt-4 space-y-1.5">
-                                    <div className="flex justify-between items-baseline">
-                                        <span className="font-headline-sm text-headline-sm text-on-surface">{statsSummary.velocityRatio}% <span className="text-xs text-on-surface-variant font-normal">新增代码</span></span>
-                                    </div>
-                                    <div className="w-full h-1.5 bg-outline rounded-full overflow-hidden flex">
-                                        <div className="bg-[#10b981] h-full" style={{ width: `${statsSummary.velocityRatio}%` }}></div>
-                                        <div className="bg-[#ef4444] h-full" style={{ width: `${100 - statsSummary.velocityRatio}%` }}></div>
-                                    </div>
-                                    <div className="text-[10px] text-on-surface-variant font-mono flex justify-between pt-0.5 font-semibold">
-                                        <span className="text-[#10b981]">+{statsSummary.totalAdditions.toLocaleString()} L</span>
-                                        <span className="text-[#ef4444]">-{statsSummary.totalDeletions.toLocaleString()} L</span>
-                                    </div>
+                            </div>
+                            <div className="mt-4 space-y-1.5">
+                                <div className="flex justify-between items-baseline">
+                                    <span className="font-headline-sm text-headline-sm text-on-surface">
+                                        {isLoading ? (
+                                            <span className="inline-block w-14 h-6 bg-on-surface-variant/15 rounded animate-pulse" />
+                                        ) : (
+                                            `${statsSummary.velocityRatio}%`
+                                        )} <span className="text-xs text-on-surface-variant font-normal">新增代码</span>
+                                    </span>
                                 </div>
-                            </motion.div>
-
-                            {/* Card 3: Avg Commits per Developer */}
-                            <motion.div 
-                                whileHover={{ y: -2 }}
-                                className="bg-surface-bright border border-outline rounded-xl p-4 flex flex-col justify-between"
-                            >
-                                <div className="flex justify-between items-start">
-                                    <span className="font-label-caps text-label-caps text-on-surface-variant">人均交付频率</span>
-                                    <div className="p-1.5 bg-tertiary/10 rounded text-tertiary">
-                                        <Zap size={14} />
-                                    </div>
+                                <div className="w-full h-1.5 bg-outline rounded-full overflow-hidden flex">
+                                    <div className="bg-[#10b981] h-full" style={{ width: `${isLoading ? 50 : statsSummary.velocityRatio}%` }}></div>
+                                    <div className="bg-[#ef4444] h-full" style={{ width: `${isLoading ? 50 : 100 - statsSummary.velocityRatio}%` }}></div>
                                 </div>
-                                <div className="mt-4">
-                                    <h3 className="font-headline-lg text-headline-lg text-on-surface">{statsSummary.avgCommits} <span className="text-xs text-on-surface-variant font-normal">个提交</span></h3>
-                                    <p className="font-body-sm text-body-sm text-on-surface-variant flex items-center gap-1 mt-1 font-medium">
-                                        <CheckCircle size={12} className="text-[#10b981]" /> 代码库高活性状态
-                                    </p>
+                                <div className="text-[10px] text-on-surface-variant font-mono flex justify-between pt-0.5 font-semibold">
+                                    <span className="text-[#10b981]">+{isLoading ? "..." : statsSummary.totalAdditions.toLocaleString()} L</span>
+                                    <span className="text-[#ef4444]">{isLoading ? "..." : `-${statsSummary.totalDeletions.toLocaleString()}`} L</span>
                                 </div>
-                            </motion.div>
-                        </div>
+                            </div>
+                        </motion.div>
 
-                        {/* Top Performer Hall of Fame (MVP Block/4 Cols) */}
-                        <div className="col-span-1 lg:col-span-4">
-                            {statsSummary.mvpDev ? (
-                                <motion.div 
-                                    whileHover={{ y: -2 }}
-                                    className="relative bg-gradient-to-br from-[#1e1b4b] to-[#0f172a] text-white border border-[#312e81] shadow-xl rounded-xl p-4 overflow-hidden flex flex-col justify-between h-full group"
-                                >
-                                    {/* Sparkle background element */}
-                                    <div className="absolute right-[-10px] top-[-10px] opacity-10 group-hover:scale-110 duration-200 transition-transform">
-                                        <Award size={130} className="text-yellow-400" />
-                                    </div>
-
-                                    <div className="flex justify-between items-center z-10">
-                                        <span className="font-label-caps text-label-caps text-indigo-300 flex items-center gap-1">
-                                            <Sparkles size={12} className="text-yellow-400 animate-pulse" /> 周期效能最杰出开发者 (MVP)
-                                        </span>
-                                        <span className="text-[10px] font-mono font-bold bg-[#fbbf24]/20 border border-[#fbbf24]/30 px-2 py-0.5 rounded text-[#f59e0b]">
-                                            RANK 1
-                                        </span>
-                                    </div>
-
-                                    <div className="flex items-center gap-4.5 my-4 z-10">
-                                        <div className="w-14 h-14 rounded-full bg-gradient-to-tr from-[#fbbf24] to-[#f59e0b] p-0.5 shadow-lg shrink-0">
-                                            <div className="w-full h-full rounded-full bg-[#1e1b4b] flex items-center justify-center font-bold text-lg text-white font-mono border-2 border-indigo-950/40">
-                                                {getAvatarConfig(statsSummary.mvpDev.name).initials}
-                                            </div>
-                                        </div>
-                                        <div className="min-w-0">
-                                            <h4 className="font-headline-sm text-headline-sm font-bold truncate group-hover:text-amber-300 transition-colors">{statsSummary.mvpDev.name}</h4>
-                                            <p className="font-body-sm text-body-sm text-indigo-200/80 truncate font-mono text-[11px] mt-0.5">{mvpRater.badge}</p>
-                                        </div>
-                                    </div>
-
-                                    <div className="border-t border-indigo-900/60 pt-3 flex justify-between items-end z-10">
-                                        <div className="space-y-0.5">
-                                            <p className="text-[10px] font-medium text-indigo-300 font-sans">周期交付量</p>
-                                            <p className="font-code-md text-sm font-bold text-white font-mono">{statsSummary.mvpDev.commitsCount30d} 提交 / +{statsSummary.mvpDev.additions30d.toLocaleString()} L</p>
-                                        </div>
-                                        <span className="text-[10px] font-semibold text-indigo-200 bg-indigo-950 border border-indigo-900/40 px-2 py-0.5 rounded font-mono shrink-0">
-                                            {mvpRater.level}
-                                        </span>
-                                    </div>
-                                </motion.div>
-                            ) : (
-                                <div className="bg-surface-bright border border-outline rounded-xl p-4 flex items-center justify-center h-full text-on-surface-variant text-xs">
-                                    暂无杰出开发者
+                        {/* Card 3: Avg Commits per Developer */}
+                        <motion.div 
+                            whileHover={{ y: -2 }}
+                            className="bg-surface-bright border border-outline rounded-xl p-4 flex flex-col justify-between"
+                        >
+                            <div className="flex justify-between items-start">
+                                <span className="font-label-caps text-label-caps text-on-surface-variant">人均交付频率</span>
+                                <div className="p-1.5 bg-tertiary/10 rounded text-tertiary">
+                                    <Zap size={14} />
                                 </div>
-                            )}
-                        </div>
+                            </div>
+                            <div className="mt-4">
+                                <h3 className="font-headline-lg text-headline-lg text-on-surface">
+                                    {isLoading ? (
+                                        <span className="inline-block w-12 h-8 bg-on-surface-variant/15 rounded animate-pulse" />
+                                    ) : (
+                                        statsSummary.avgCommits
+                                    )} <span className="text-xs text-on-surface-variant font-normal">个提交</span>
+                                </h3>
+                                <p className="font-body-sm text-body-sm text-on-surface-variant flex items-center gap-1 mt-1 font-medium">
+                                    <CheckCircle size={12} className="text-[#10b981]" /> 代码库高活性状态
+                                </p>
+                            </div>
+                        </motion.div>
                     </div>
+
+                    {/* Top Performer Hall of Fame (MVP Block/4 Cols) */}
+                    <div className="col-span-1 lg:col-span-4">
+                        {isLoading ? (
+                            <div className="bg-gradient-to-br from-[#1e1b4b] to-[#0f172a] text-white border border-[#312e81] shadow-xl rounded-xl p-4 overflow-hidden flex flex-col justify-between h-full animate-pulse">
+                                <div className="h-4 bg-indigo-900/50 rounded w-2/3 animate-pulse" />
+                                <div className="flex items-center gap-4.5 my-4">
+                                    <div className="w-14 h-14 rounded-full bg-indigo-900/50 animate-pulse" />
+                                    <div className="flex-1 space-y-2">
+                                        <div className="h-4 bg-indigo-900/50 rounded w-1/2 animate-pulse" />
+                                        <div className="h-3 bg-indigo-900/50 rounded w-1/3 animate-pulse" />
+                                    </div>
+                                </div>
+                                <div className="border-t border-indigo-900/60 pt-3 h-10" />
+                            </div>
+                        ) : statsSummary.mvpDev ? (
+                            <motion.div 
+                                whileHover={{ y: -2 }}
+                                className="relative bg-gradient-to-br from-[#1e1b4b] to-[#0f172a] text-white border border-[#312e81] shadow-xl rounded-xl p-4 overflow-hidden flex flex-col justify-between h-full group"
+                            >
+                                {/* Sparkle background element */}
+                                <div className="absolute right-[-10px] top-[-10px] opacity-10 group-hover:scale-110 duration-200 transition-transform">
+                                    <Award size={130} className="text-yellow-400" />
+                                </div>
+
+                                <div className="flex justify-between items-center z-10">
+                                    <span className="font-label-caps text-label-caps text-indigo-300 flex items-center gap-1">
+                                        <Sparkles size={12} className="text-yellow-400 animate-pulse" /> 周期效能最杰出开发者 (MVP)
+                                    </span>
+                                    <span className="text-[10px] font-mono font-bold bg-[#fbbf24]/20 border border-[#fbbf24]/30 px-2 py-0.5 rounded text-[#f59e0b]">
+                                        RANK 1
+                                    </span>
+                                </div>
+
+                                <div className="flex items-center gap-4.5 my-4 z-10">
+                                    <div className="w-14 h-14 rounded-full bg-gradient-to-tr from-[#fbbf24] to-[#f59e0b] p-0.5 shadow-lg shrink-0">
+                                        <div className="w-full h-full rounded-full bg-[#1e1b4b] flex items-center justify-center font-bold text-lg text-white font-mono border-2 border-indigo-950/40">
+                                            {getAvatarConfig(statsSummary.mvpDev.name).initials}
+                                        </div>
+                                    </div>
+                                    <div className="min-w-0">
+                                        <h4 className="font-headline-sm text-headline-sm font-bold truncate group-hover:text-amber-300 transition-colors">{statsSummary.mvpDev.name}</h4>
+                                        <p className="font-body-sm text-body-sm text-indigo-200/80 truncate font-mono text-[11px] mt-0.5">{mvpRater.badge}</p>
+                                    </div>
+                                </div>
+
+                                <div className="border-t border-indigo-900/60 pt-3 flex justify-between items-end z-10">
+                                    <div className="space-y-0.5">
+                                        <p className="text-[10px] font-medium text-indigo-300 font-sans">周期交付量</p>
+                                        <p className="font-code-md text-sm font-bold text-white font-mono">{statsSummary.mvpDev.commitsCount30d} 提交 / +{statsSummary.mvpDev.additions30d.toLocaleString()} L</p>
+                                    </div>
+                                    <span className="text-[10px] font-semibold text-indigo-200 bg-indigo-950 border border-indigo-900/40 px-2 py-0.5 rounded font-mono shrink-0">
+                                        {mvpRater.level}
+                                    </span>
+                                </div>
+                            </motion.div>
+                        ) : (
+                            <div className="bg-surface-bright border border-outline rounded-xl p-4 flex items-center justify-center h-full text-on-surface-variant text-xs">
+                                暂无杰出开发者
+                            </div>
+                        )}
+                    </div>
+                </div>
 
                     {/* Team Engagement Trend Chart Container */}
                     <div className="bg-surface-bright border border-outline rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-all">
@@ -990,7 +1014,18 @@ export const ContributorAnalytics = () => {
 
                         {/* Interactive Graph Drawing Box */}
                         <div className="p-4 relative">
-                            {chartRenderData.coords.length > 0 ? (
+                            {isLoading ? (
+                                <div className="w-full relative h-[190px] flex items-end justify-between pr-6 pl-12 gap-5 pb-5 animate-pulse">
+                                    {Array.from({ length: 12 }).map((_, i) => (
+                                        <div
+                                            key={i}
+                                            className="w-full bg-primary/10 rounded-t border border-primary/5 shadow-xs"
+                                            style={{ height: `${20 + (i % 4) * 18 + (i % 3) * 10}%` }}
+                                        />
+                                    ))}
+                                    <div className="absolute inset-x-0 bottom-0 h-px bg-outline-variant/30" />
+                                </div>
+                            ) : chartRenderData.coords.length > 0 ? (
                                 <div className="w-full relative min-h-[190px]">
                                     <svg 
                                         viewBox={`0 0 ${chartRenderData.width} ${chartRenderData.height}`} 
@@ -1313,7 +1348,43 @@ export const ContributorAnalytics = () => {
                                     </tr>
                                 </thead>
                                 <tbody className="font-body-md text-body-md divide-y divide-outline-variant/50">
-                                    {activeContributorsList.map((dev, idx) => {
+                                    {isLoading ? (
+                                        Array.from({ length: 5 }).map((_, idx) => (
+                                            <tr key={idx} className="border-b border-outline-variant/40 animate-pulse">
+                                                <td className="px-5 py-3.5 text-center">
+                                                    <div className="w-5 h-5 rounded-full bg-on-surface-variant/15 mx-auto animate-pulse" />
+                                                </td>
+                                                <td className="px-5 py-3.5">
+                                                    <div className="flex items-center gap-3 animate-pulse">
+                                                        <div className="w-8 h-8 rounded-full bg-on-surface-variant/15 shrink-0" />
+                                                        <div className="space-y-1.5 flex-1">
+                                                            <div className="h-3 bg-on-surface-variant/15 rounded w-24" />
+                                                            <div className="h-2.5 bg-on-surface-variant/10 rounded w-36" />
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td className="px-5 py-3.5">
+                                                    <div className="h-3.5 bg-on-surface-variant/15 rounded w-10 mx-auto animate-pulse" />
+                                                </td>
+                                                <td className="px-5 py-3.5">
+                                                    <div className="space-y-1.5 animate-pulse">
+                                                        <div className="w-full h-2 rounded-full bg-on-surface-variant/15" />
+                                                        <div className="h-2.5 bg-on-surface-variant/10 rounded w-32" />
+                                                    </div>
+                                                </td>
+                                                <td className="px-5 py-3.5 text-right">
+                                                    <div className="h-3 bg-on-surface-variant/15 rounded w-12 ml-auto animate-pulse" />
+                                                </td>
+                                                <td className="px-5 py-3.5 text-right">
+                                                    <div className="h-3 bg-on-surface-variant/15 rounded w-12 ml-auto animate-pulse" />
+                                                </td>
+                                                <td className="px-5 py-3.5 text-right">
+                                                    <div className="h-5 bg-on-surface-variant/15 rounded w-8 ml-auto animate-pulse" />
+                                                </td>
+                                            </tr>
+                                        ))
+                                    ) : activeContributorsList.length > 0 ? (
+                                        activeContributorsList.map((dev, idx) => {
                                         const rank = idx + 1;
                                         const avatar = getAvatarConfig(dev.name);
 
@@ -1412,8 +1483,8 @@ export const ContributorAnalytics = () => {
                                                 </td>
                                             </tr>
                                         );
-                                    })}
-                                    {activeContributorsList.length === 0 && (
+                                        })
+                                    ) : (
                                         <tr>
                                             <td colSpan={7} className="text-center font-medium py-12 text-on-surface-variant text-xs">
                                                 查无匹配条件的开发人员
@@ -1425,7 +1496,6 @@ export const ContributorAnalytics = () => {
                         </div>
                     </div>
                 </div>
-            )}
 
             {/* Micro details Contributor Slide-Over Detail Modal */}
             <AnimatePresence>

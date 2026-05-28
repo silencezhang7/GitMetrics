@@ -162,8 +162,19 @@ export const DeveloperProfile = () => {
 
     // Get current contributor object
     const currentContributor = useMemo(() => {
+        if (isLoading) {
+            return {
+                name: '加载分析中...',
+                commitsCount30d: 0,
+                additions30d: 0,
+                deletions30d: 0,
+                totalLoc30d: 0,
+                projects: ['...'],
+                lastCommitDate: new Date().toISOString()
+            };
+        }
         return contributors.find(c => c.name === selectedDevName) || null;
-    }, [contributors, selectedDevName]);
+    }, [contributors, selectedDevName, isLoading]);
 
     // Filter project dropdown list
     const filteredContributors = useMemo(() => {
@@ -473,12 +484,7 @@ export const DeveloperProfile = () => {
                 </div>
             </div>
 
-            {isLoading ? (
-                <div className="flex flex-col items-center justify-center py-20 gap-3">
-                    <Loader2 size={32} className="text-primary animate-spin" />
-                    <p className="text-on-surface-variant font-mono text-xs">正在渲染开发者全局多轴画像中...</p>
-                </div>
-            ) : currentContributor ? (
+            {currentContributor ? (
                 <motion.div 
                     initial={{ opacity: 0, y: 15 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -550,7 +556,7 @@ export const DeveloperProfile = () => {
                                     <div className="mt-4 flex items-baseline justify-between">
                                         <div>
                                             <span className="font-headline-lg text-headline-lg text-on-surface font-bold">
-                                                {currentContributor.commitsCount30d}
+                                                {isLoading ? "..." : currentContributor.commitsCount30d}
                                             </span>
                                             <span className="text-xs text-on-surface-variant ml-1 font-semibold">次Push</span>
                                         </div>
@@ -573,7 +579,7 @@ export const DeveloperProfile = () => {
                                     <div className="mt-4 flex items-baseline justify-between">
                                         <div>
                                             <span className="font-headline-lg text-headline-lg text-on-surface font-bold">
-                                                +{avgChangeSize}
+                                                +{isLoading ? "..." : avgChangeSize}
                                             </span>
                                             <span className="text-xs text-on-surface-variant ml-1 font-semibold">等价行</span>
                                         </div>
@@ -592,8 +598,8 @@ export const DeveloperProfile = () => {
                                     </div>
                                     <div className="mt-4 flex flex-col justify-end">
                                         <div className="flex justify-between text-[11px] font-mono font-bold mb-1">
-                                            <span className="text-secondary bg-emerald-500/5 px-1 py-0.5 rounded">+{currentContributor.additions30d.toLocaleString()}</span>
-                                            <span className="text-error bg-rose-500/5 px-1 py-0.5 rounded">-{currentContributor.deletions30d.toLocaleString()}</span>
+                                            <span className="text-secondary bg-emerald-500/5 px-1 py-0.5 rounded">+{isLoading ? "..." : currentContributor.additions30d.toLocaleString()}</span>
+                                            <span className="text-error bg-rose-500/5 px-1 py-0.5 rounded">-{isLoading ? "..." : currentContributor.deletions30d.toLocaleString()}</span>
                                         </div>
                                         <div className="w-full h-1 bg-outline rounded-full overflow-hidden flex">
                                             <div 
@@ -837,9 +843,17 @@ export const DeveloperProfile = () => {
                         </div>
 
                         {isCommitsLoading ? (
-                            <div className="flex items-center justify-center py-12 gap-2 text-on-surface-variant">
-                                <Loader2 size={16} className="animate-spin text-primary" />
-                                <span className="text-xs font-semibold">正在抽取数据仓库提交...</span>
+                            <div className="divide-y divide-outline-variant/30">
+                                {Array.from({ length: 4 }).map((_, idx) => (
+                                    <div key={idx} className="p-4 flex items-start gap-4 animate-pulse">
+                                        <div className="w-8 h-8 rounded-full bg-on-surface-variant/15 shrink-0" />
+                                        <div className="space-y-2 flex-1">
+                                            <div className="h-3 bg-on-surface-variant/15 rounded w-2/3" />
+                                            <div className="h-2.5 bg-on-surface-variant/10 rounded w-1/2" />
+                                        </div>
+                                        <div className="w-16 h-4 bg-on-surface-variant/15 rounded shrink-0 self-center" />
+                                    </div>
+                                ))}
                             </div>
                         ) : (
                             <div className="divide-y divide-outline-variant/50">

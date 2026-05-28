@@ -1,6 +1,7 @@
 import { Calendar, Download, GitCommit, Code, Users, GitMerge, TrendingUp, TrendingDown, Minus, MoreVertical, Folder, ArrowUp, ChevronDown, Search } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
+import { MultiProjectComparer } from '../components/MultiProjectComparer';
 
 type ProjectTrend = {
     id: number;
@@ -1250,6 +1251,15 @@ export const GlobalDashboard = () => {
                         </svg>
                     </div>
                 </div>
+
+                {/* Multi-Project Comparison Section (Span 12) */}
+                {summary && summary.trends && summary.trends.projects && (
+                    <MultiProjectComparer 
+                        projects={summary.trends.projects}
+                        topProjects={summary.topProjects}
+                        monthLabels={summary.monthLabels}
+                    />
+                )}
 
                 {/* Top Active Projects (Table) - Span 12 */}
                 <div className="workspace-card bg-surface-container-lowest border border-outline-variant rounded p-margin-sm col-span-1 md:col-span-6 lg:col-span-12 hover-ambient-shadow">

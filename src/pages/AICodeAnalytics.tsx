@@ -777,12 +777,14 @@ zhongyun.lu@axatp.com\t121\t35\t1\t0\t167559\t0\t430649\t0\t0\t0\t0\t1537265\t0\
         const topModel = workbookAnalytics?.modelDistribution[0]?.name || (sortedModelsUsage.length > 0 ? sortedModelsUsage[0].name : 'glm-5.1');
         const teamAiContributionRate = workbookAnalytics ? workbookAnalytics.aiContributionRate : (teamTotalGenerated > 0 ? (teamTotalAI / teamTotalGenerated) * 100 : 0);
         const cueAdoptionRatio = workbookAnalytics ? workbookAnalytics.cueAdoptionRate : (teamCueSubmissions > 0 ? (teamCueAdoptions / teamCueSubmissions) * 100 : 0);
+        const aiVsGitRate = teamTotalGitAdditions > 0 ? (teamTotalAI / teamTotalGitAdditions) * 100 : 0;
 
         return {
             totalAIAdditions: teamTotalAI,
             totalAIGenerated: workbookAnalytics?.aiGeneratedLines || teamTotalGenerated,
             totalGitAdditions: teamTotalGitAdditions,
             teamAiSubstitutionRate: teamAiContributionRate,
+            aiVsGitRate,
             teamCueSubmissions,
             teamCueAdoptions,
             cueAdoptionRatio,
@@ -1000,7 +1002,7 @@ zhongyun.lu@axatp.com\t121\t35\t1\t0\t167559\t0\t430649\t0\t0\t0\t0\t1537265\t0\
             )}
 
             {/* Dashboard KPI Top Row */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-margin-sm">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-margin-sm">
                 {/* KPI Item 1: Total AI LOC */}
                 <motion.div 
                     whileHover={{ y: -2 }}
@@ -1105,6 +1107,28 @@ zhongyun.lu@axatp.com\t121\t35\t1\t0\t167559\t0\t430649\t0\t0\t0\t0\t1537265\t0\
                         </h3>
                         <p className="font-mono text-[9px] text-on-surface-variant mt-1.5 font-semibold">
                             统计时间 {formatDateRange(workbookAnalytics?.since, workbookAnalytics?.until)} · 活跃模型门类：{globalSummaryStats.allModelsUsage.length} 类
+                        </p>
+                    </div>
+                </motion.div>
+
+                {/* KPI Item 6: AI vs Git Total Ratio */}
+                <motion.div 
+                    whileHover={{ y: -2 }}
+                    className="bg-surface-bright border border-outline rounded-xl p-4 flex flex-col justify-between cursor-pointer card-hover-ambient"
+                >
+                    <div className="flex justify-between items-start">
+                        <span className="font-label-caps text-[11px] text-on-surface-variant font-bold uppercase tracking-wider">AI vs Git 提交总百分比</span>
+                        <div className="p-1.5 bg-emerald-500/10 rounded text-emerald-400">
+                            <TrendingUp size={14} />
+                        </div>
+                    </div>
+                    <div className="mt-4">
+                        <h3 className="font-sans text-[26px] font-bold text-emerald-400">
+                            {globalSummaryStats.aiVsGitRate.toFixed(1)}% <span className="text-xs text-on-surface-variant font-normal">采纳/提交</span>
+                        </h3>
+                        <p className="font-body-sm text-[11px] text-on-surface-variant mt-1.5 flex justify-between gap-3">
+                            <span>AI: {globalSummaryStats.totalAIAdditions.toLocaleString()}</span>
+                            <span>Git: {globalSummaryStats.totalGitAdditions.toLocaleString()}</span>
                         </p>
                     </div>
                 </motion.div>
@@ -1227,6 +1251,10 @@ zhongyun.lu@axatp.com\t121\t35\t1\t0\t167559\t0\t430649\t0\t0\t0\t0\t1537265\t0\
                                         </span>
                                     </div>
                                     <div className="space-y-1">
+                                        <div className="flex justify-between text-[10px] font-mono text-on-surface-variant/80 px-0.5">
+                                            <span>Git {gitPercent.toFixed(1)}%</span>
+                                            <span>AI {aiPercent.toFixed(1)}%</span>
+                                        </div>
                                         {/* Git original Additions scale line (Gray) */}
                                         <div className="w-full h-1 bg-outline rounded-full relative overflow-hidden">
                                             <div className="absolute left-0 top-0 h-full bg-slate-500/40 rounded-full" style={{ width: `${gitPercent}%` }} />

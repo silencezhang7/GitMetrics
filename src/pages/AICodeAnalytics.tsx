@@ -34,6 +34,7 @@ interface ModelUsage {
 interface AIDeveloperRecord {
     account: string;            // 用户账号
     adoptedLines: number;       // 已采纳代码行
+    generatedLines?: number;    // AI生成代码行
     adoptedChars: number;       // 已采纳代码字符数
     cueSubmissions: number;     // CUE提交代码次数
     cueAdoptions: number;       // CUE已采纳代码次数
@@ -49,6 +50,325 @@ interface MatchedGitStats {
     gitAdditions: number;
     gitCommits: number;
 }
+
+interface ContributionTrendPoint {
+    label: string;
+    generated: number;
+    adopted: number;
+    contributionRate: number;
+    cueRecommendations: number;
+    cueAdoptions: number;
+}
+
+interface WorkbookAnalytics {
+    sourceName: string;
+    periodLabel: string;
+    since?: string;
+    until?: string;
+    records: AIDeveloperRecord[];
+    totalUsers: number;
+    activeUsers: number;
+    aiGeneratedLines: number;
+    aiAdoptedLines: number;
+    aiContributionRate: number;
+    cueRecommendations: number;
+    cueAdoptions: number;
+    cueAdoptionRate: number;
+    dailyTrend: ContributionTrendPoint[];
+    modelDistribution: { name: string; value: number; share: number }[];
+    languageDistribution: { name: string; value: number; share: number }[];
+    mcpRanking: { name: string; calls: number }[];
+}
+
+const AI_CODING_CACHE_KEY = 'aiCodingWorkbookAnalytics:v1';
+const AI_CODING_FIXED_FILE_NAME = 'AIcoding.xlsx';
+
+const normalizeText = (value: unknown) => String(value ?? '').replace(/\s+/g, '').replace(/[：:（）()]/g, '').toLowerCase();
+
+const toNumber = (value: unknown) => {
+    if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+    if (typeof value === 'string') {
+        const cleaned = value.replace(/[,，\s]/g, '').replace(/%/g, '');
+        const parsed = Number(cleaned);
+        return Number.isFinite(parsed) ? parsed : 0;
+    }
+    return 0;
+};
+
+const asPercent = (value: unknown) => {
+    if (typeof value === 'string' && value.includes('%')) {
+        return toNumber(value);
+    }
+    return toNumber(value);
+};
+
+const rowsFromSheet = (worksheet?: XLSX.WorkSheet) => {
+    if (!worksheet) return [] as any[][];
+    return XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' }) as any[][];
+};
+
+const findSheetByKeywords = (sheetNames: string[], keywords: string[]) => {
+    const normalizedKeywords = keywords.map(normalizeText);
+    return sheetNames.find((name) => {
+        const normalizedName = normalizeText(name);
+        return normalizedKeywords.every((keyword) => normalizedName.includes(keyword));
+    });
+};
+
+const findHeaderIndex = (headers: string[], candidates: string[]) => {
+    const normalizedHeaders = headers.map(normalizeText);
+    for (const candidate of candidates) {
+        const normalizedCandidate = normalizeText(candidate);
+        const exact = normalizedHeaders.findIndex((header) => header === normalizedCandidate);
+        if (exact !== -1) return exact;
+        const partial = normalizedHeaders.findIndex((header) => header.includes(normalizedCandidate));
+        if (partial !== -1) return partial;
+    }
+    return -1;
+};
+
+const parseWorkbookPeriod = (periodLabel: string) => {
+    const normalized = periodLabel.trim();
+    const match = normalized.match(/(\d{4})[-/.]?(\d{2})[-/.]?(\d{2})\s*(?:~|～|至|-)\s*(\d{4})[-/.]?(\d{2})[-/.]?(\d{2})/);
+    if (!match) return {};
+
+    const [, sy, sm, sd, uy, um, ud] = match;
+    return {
+        since: `${sy}-${sm}-${sd}`,
+        until: `${uy}-${um}-${ud}`,
+    };
+};
+
+const formatDateRange = (since?: string, until?: string) => {
+    if (!since || !until) return '未识别起止时间';
+    return `${since} 至 ${until}`;
+};
+
+const cacheWorkbookAnalytics = (analytics: WorkbookAnalytics) => {
+    const payload = {
+        fileName: AI_CODING_FIXED_FILE_NAME,
+        analytics,
+    };
+    localStorage.setItem(AI_CODING_CACHE_KEY, JSON.stringify(payload));
+};
+
+const readCachedWorkbookAnalytics = (): WorkbookAnalytics | null => {
+    try {
+        const raw = localStorage.getItem(AI_CODING_CACHE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as { fileName?: string; analytics?: WorkbookAnalytics };
+        if (parsed.fileName !== AI_CODING_FIXED_FILE_NAME || !parsed.analytics) return null;
+        return parsed.analytics;
+    } catch {
+        return null;
+    }
+};
+
+const parseUserDetailSheet = (rows: any[][]) => {
+    if (rows.length < 2) {
+        throw new Error('用户详细数据表为空或缺少标题行。');
+    }
+
+    const headers = rows[0].map((header) => String(header ?? '').trim());
+    const accountIdx = findHeaderIndex(headers, ['用户邮箱', '用户账号', '账号', 'email']);
+    const adoptedLinesIdx = findHeaderIndex(headers, ['问答采纳代码行数', '已采纳代码行', '采纳代码行数']);
+    const generatedLinesIdx = findHeaderIndex(headers, ['问答生成代码行数', '生成代码行数']);
+    const cueSubmissionsIdx = findHeaderIndex(headers, ['CUE 推荐代码次数', 'CUE 提交代码次数', 'CUE推荐代码次数']);
+    const cueAdoptionsIdx = findHeaderIndex(headers, ['CUE采纳代码次数', 'CUE已采纳代码次数', 'CUE已采纳']);
+
+    if (accountIdx === -1 || adoptedLinesIdx === -1) {
+        throw new Error('用户详细数据表缺少必要字段：用户邮箱 / 问答采纳代码行数。');
+    }
+
+    const modelColumns = headers
+        .map((header, index) => {
+            const normalized = normalizeText(header);
+            const isModelUsage = normalized.includes('模型席位用量') || normalized.includes('模型按量计费');
+            if (!isModelUsage) return null;
+
+            const label = header
+                .replace(/^内置模型席位用量[（(]/, '')
+                .replace(/^内置模型按量计费[（(]/, '')
+                .replace(/^[（(]/, '')
+                .replace(/[)）]$/, '')
+                .replace(/^已付费[:：]/, '')
+                .trim();
+
+            return { index, name: label || header.trim(), isPremium: normalized.includes('按量计费') };
+        })
+        .filter(Boolean) as { index: number; name: string; isPremium: boolean }[];
+
+    const records: AIDeveloperRecord[] = [];
+
+    for (let rowIndex = 1; rowIndex < rows.length; rowIndex++) {
+        const row = rows[rowIndex];
+        const account = String(row[accountIdx] ?? '').trim();
+        if (!account) continue;
+
+        const adoptedLines = toNumber(row[adoptedLinesIdx]);
+        const generatedLines = generatedLinesIdx !== -1 ? toNumber(row[generatedLinesIdx]) : adoptedLines;
+        const cueSubmissions = cueSubmissionsIdx !== -1 ? toNumber(row[cueSubmissionsIdx]) : 0;
+        const cueAdoptions = cueAdoptionsIdx !== -1 ? toNumber(row[cueAdoptionsIdx]) : 0;
+        const modelCalls: { [key: string]: number } = {};
+        let hasPremiumUsage = false;
+        let totalModelUsage = 0;
+        let primaryModel = 'CUE';
+        let maxModelVal = -1;
+
+        modelColumns.forEach((column) => {
+            const value = toNumber(row[column.index]);
+            if (value <= 0) return;
+            modelCalls[column.name] = (modelCalls[column.name] || 0) + value;
+            totalModelUsage += value;
+            if (column.isPremium) {
+                hasPremiumUsage = true;
+            }
+            if (value > maxModelVal) {
+                maxModelVal = value;
+                primaryModel = column.name;
+            }
+        });
+
+        records.push({
+            account,
+            adoptedLines,
+            generatedLines,
+            adoptedChars: generatedLines,
+            cueSubmissions,
+            cueAdoptions,
+            modelCalls,
+            hasPremiumUsage,
+            totalModelUsage,
+            primaryModel,
+        });
+    }
+
+    if (records.length === 0) {
+        throw new Error('未能从用户详细数据表中解析出有效记录。');
+    }
+
+    return records;
+};
+
+const parseWorkbookAnalytics = (workbook: XLSX.WorkBook, sourceName: string) => {
+    const coreSheetName = findSheetByKeywords(workbook.SheetNames, ['核心数据']);
+    const activeSheetName = findSheetByKeywords(workbook.SheetNames, ['人员活跃详细数据']);
+    const aiSheetName = findSheetByKeywords(workbook.SheetNames, ['AI使用详细数据']);
+    const mcpSheetName = findSheetByKeywords(workbook.SheetNames, ['Top', 'MCP']);
+    const modelSheetName = findSheetByKeywords(workbook.SheetNames, ['大模型调用分布图']);
+    const languageSheetName = findSheetByKeywords(workbook.SheetNames, ['编程语言分布图']);
+    const userSheetName = findSheetByKeywords(workbook.SheetNames, ['用户详细数据']);
+
+    const coreRows = rowsFromSheet(coreSheetName ? workbook.Sheets[coreSheetName] : undefined);
+    const activeRows = rowsFromSheet(activeSheetName ? workbook.Sheets[activeSheetName] : undefined);
+    const aiRows = rowsFromSheet(aiSheetName ? workbook.Sheets[aiSheetName] : undefined);
+    const mcpRows = rowsFromSheet(mcpSheetName ? workbook.Sheets[mcpSheetName] : undefined);
+    const modelRows = rowsFromSheet(modelSheetName ? workbook.Sheets[modelSheetName] : undefined);
+    const languageRows = rowsFromSheet(languageSheetName ? workbook.Sheets[languageSheetName] : undefined);
+    const userRows = rowsFromSheet(userSheetName ? workbook.Sheets[userSheetName] : undefined);
+
+    const coreMap: Record<string, unknown> = {};
+    coreRows.forEach((row) => {
+        const keys = [row[0], row[1]].map((item) => String(item ?? '').trim()).filter(Boolean);
+        const value = [row[2], row[1], row[0]].find((item) => String(item ?? '').trim() !== '') ?? '';
+        keys.forEach((key) => {
+            coreMap[normalizeText(key)] = value;
+        });
+    });
+
+    const aiHeader = aiRows[0] || [];
+    const aiEntries = aiRows.slice(1).filter((row) => String(row[0] ?? '').trim());
+
+    const userRecords = parseUserDetailSheet(userRows);
+    const totalUsers = userRecords.length;
+    const activeUsers = userRecords.filter((record) => record.adoptedLines > 0).length;
+
+    const aiGeneratedLines = aiEntries.reduce((sum, row) => sum + toNumber(row[findHeaderIndex(aiHeader, ['生成代码行数'])]), 0);
+    const aiAdoptedLines = aiEntries.reduce((sum, row) => sum + toNumber(row[findHeaderIndex(aiHeader, ['采纳代码行数'])]), 0);
+    const cueRecommendations = aiEntries.reduce((sum, row) => sum + toNumber(row[findHeaderIndex(aiHeader, ['CUE推荐代码次数'])]), 0);
+    const cueAdoptions = aiEntries.reduce((sum, row) => sum + toNumber(row[findHeaderIndex(aiHeader, ['CUE采纳代码次数'])]), 0);
+
+    const dailyTrend = aiEntries.map((row, index) => {
+        const label = String(row[0] ?? '').trim();
+        const generated = toNumber(row[findHeaderIndex(aiHeader, ['生成代码行数'])]);
+        const adopted = toNumber(row[findHeaderIndex(aiHeader, ['采纳代码行数'])]);
+        const recommendations = toNumber(row[findHeaderIndex(aiHeader, ['CUE推荐代码次数'])]);
+        const adoptions = toNumber(row[findHeaderIndex(aiHeader, ['CUE采纳代码次数'])]);
+        const contributionRate = generated > 0 ? (adopted / generated) * 100 : 0;
+
+        return {
+            label: label || `Day-${index + 1}`,
+            generated,
+            adopted,
+            contributionRate,
+            cueRecommendations: recommendations,
+            cueAdoptions: adoptions,
+        };
+    });
+
+    const modelDistribution = modelRows.slice(1)
+        .filter((row) => String(row[0] ?? '').trim())
+        .map((row) => ({
+            name: String(row[0] ?? '').trim(),
+            value: asPercent(row[1]),
+        }))
+        .filter((item) => item.name)
+        .sort((a, b) => b.value - a.value);
+
+    const modelTotal = modelDistribution.reduce((sum, item) => sum + item.value, 0) || 1;
+    const normalizedModelDistribution = modelDistribution.map((item) => ({
+        ...item,
+        share: (item.value / modelTotal) * 100,
+    }));
+
+    const languageDistribution = languageRows.slice(1)
+        .filter((row) => String(row[0] ?? '').trim())
+        .map((row) => ({
+            name: String(row[0] ?? '').trim(),
+            value: asPercent(row[1]),
+        }))
+        .filter((item) => item.name)
+        .sort((a, b) => b.value - a.value);
+
+    const languageTotal = languageDistribution.reduce((sum, item) => sum + item.value, 0) || 1;
+    const normalizedLanguageDistribution = languageDistribution.map((item) => ({
+        ...item,
+        share: (item.value / languageTotal) * 100,
+    }));
+
+    const mcpRanking = mcpRows.slice(1)
+        .filter((row) => String(row[0] ?? '').trim())
+        .map((row) => ({
+            name: String(row[0] ?? '').trim(),
+            calls: toNumber(row[1]),
+        }))
+        .sort((a, b) => b.calls - a.calls);
+
+    const periodLabel = String(coreMap[normalizeText('统计时间周期')] ?? coreMap[normalizeText('统计周期')] ?? '').trim() || '未识别';
+    const periodRange = parseWorkbookPeriod(periodLabel);
+    const coreAiRate = asPercent(coreMap[normalizeText('AI生成率')]);
+    const calculatedAiRate = aiGeneratedLines > 0 ? (aiAdoptedLines / aiGeneratedLines) * 100 : 0;
+
+    return {
+        sourceName,
+        periodLabel,
+        since: periodRange.since,
+        until: periodRange.until,
+        records: userRecords,
+        totalUsers,
+        activeUsers,
+        aiGeneratedLines,
+        aiAdoptedLines,
+        aiContributionRate: calculatedAiRate || coreAiRate,
+        cueRecommendations,
+        cueAdoptions,
+        cueAdoptionRate: cueRecommendations > 0 ? (cueAdoptions / cueRecommendations) * 100 : 0,
+        dailyTrend,
+        modelDistribution: normalizedModelDistribution,
+        languageDistribution: normalizedLanguageDistribution,
+        mcpRanking,
+    } satisfies WorkbookAnalytics;
+};
 
 export const AICodeAnalytics = () => {
     // Standard parsed sample data
@@ -96,11 +416,10 @@ zhongyun.lu@axatp.com\t121\t35\t1\t0\t167559\t0\t430649\t0\t0\t0\t0\t1537265\t0\
     const [minAdoptedLines, setMinAdoptedLines] = useState(0);
 
     // Interface active tab
-    const [importTab, setImportTab] = useState<'upload' | 'paste'>('paste');
-    const [pastedText, setPastedText] = useState('');
     const [dragActive, setDragActive] = useState(false);
     const [importError, setImportError] = useState<string | null>(null);
     const [importSuccess, setImportSuccess] = useState<boolean>(false);
+    const [workbookAnalytics, setWorkbookAnalytics] = useState<WorkbookAnalytics | null>(null);
     
     // Sort states
     const [sortField, setSortField] = useState<keyof AIDeveloperRecord | 'aiRatio' | 'teamShare'>('adoptedLines');
@@ -111,7 +430,10 @@ zhongyun.lu@axatp.com\t121\t35\t1\t0\t167559\t0\t430649\t0\t0\t0\t0\t1537265\t0\
         const fetchGitSummary = async () => {
             try {
                 setLoadingGit(true);
-                const response = await fetch('/api/gitlab/summary');
+                const params = new URLSearchParams();
+                if (workbookAnalytics?.since) params.set('since', workbookAnalytics.since);
+                if (workbookAnalytics?.until) params.set('until', workbookAnalytics.until);
+                const response = await fetch(`/api/gitlab/summary${params.toString() ? `?${params.toString()}` : ''}`);
                 if (response.ok) {
                     const data = await response.json();
                     if (data.contributorsList && data.contributorsList.length > 0) {
@@ -140,7 +462,7 @@ zhongyun.lu@axatp.com\t121\t35\t1\t0\t167559\t0\t430649\t0\t0\t0\t0\t1537265\t0\
         };
 
         fetchGitSummary();
-    }, []);
+    }, [workbookAnalytics?.since, workbookAnalytics?.until]);
 
     // Core TSV Parser Function
     const parseTSVData = (text: string): AIDeveloperRecord[] => {
@@ -156,9 +478,10 @@ zhongyun.lu@axatp.com\t121\t35\t1\t0\t167559\t0\t430649\t0\t0\t0\t0\t1537265\t0\
         const headers = lines[0].split('\t').map(h => h.trim().replace(/^["']|["']$/g, ''));
         
         // Find major indexes
-        const accountIdx = headers.findIndex(h => h.includes('用户账号') || h.toLowerCase() === 'user' || h.toLowerCase() === 'email');
-        const adoptedLinesIdx = headers.findIndex(h => h.includes('已采纳代码行') || h.includes('采纳行'));
-        const adoptedCharsIdx = headers.findIndex(h => h.includes('已采纳代码字符') || h.includes('字符数'));
+        const accountIdx = findHeaderIndex(headers, ['用户邮箱', '用户账号', '账号', 'email', 'user']);
+        const generatedLinesIdx = findHeaderIndex(headers, ['问答生成代码行数', '生成代码行数']);
+        const adoptedLinesIdx = findHeaderIndex(headers, ['问答采纳代码行数', '已采纳代码行', '采纳代码行数', '采纳行']);
+        const adoptedCharsIdx = findHeaderIndex(headers, ['已采纳代码字符数', '字符数']);
         const cueSubmissionsIdx = headers.findIndex(h => h.includes('CUE 提交代码次数') || h.includes('CUE提交'));
         const cueAdoptionsIdx = headers.findIndex(h => h.includes('CUE已采纳代码次数') || h.includes('CUE已采纳') || h.includes('CUE采纳次数'));
 
@@ -201,8 +524,9 @@ zhongyun.lu@axatp.com\t121\t35\t1\t0\t167559\t0\t430649\t0\t0\t0\t0\t1537265\t0\
             const account = row[accountIdx];
             if (!account) continue;
 
+            const generatedLines = generatedLinesIdx !== -1 ? (parseInt(row[generatedLinesIdx]) || 0) : 0;
             const adoptedLines = parseInt(row[adoptedLinesIdx]) || 0;
-            const adoptedChars = adoptedCharsIdx !== -1 ? (parseInt(row[adoptedCharsIdx]) || 0) : 0;
+            const adoptedChars = adoptedCharsIdx !== -1 ? (parseInt(row[adoptedCharsIdx]) || 0) : adoptedLines;
             const cueSubmissions = cueSubmissionsIdx !== -1 ? (parseInt(row[cueSubmissionsIdx]) || 0) : 0;
             const cueAdoptions = cueAdoptionsIdx !== -1 ? (parseInt(row[cueAdoptionsIdx]) || 0) : 0;
 
@@ -231,6 +555,7 @@ zhongyun.lu@axatp.com\t121\t35\t1\t0\t167559\t0\t430649\t0\t0\t0\t0\t1537265\t0\
             parsedRecords.push({
                 account,
                 adoptedLines,
+                generatedLines: generatedLines || adoptedLines,
                 adoptedChars,
                 cueSubmissions,
                 cueAdoptions,
@@ -259,21 +584,22 @@ zhongyun.lu@axatp.com\t121\t35\t1\t0\t167559\t0\t430649\t0\t0\t0\t0\t1537265\t0\
         }
     }, []);
 
-    // Handle Copy Paste Import Submission
-    const handlePasteSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        setImportError(null);
-        setImportSuccess(false);
-
-        try {
-            const parsed = parseTSVData(pastedText);
-            setOriginalRecords(parsed);
-            setRecords(parsed);
-            setImportSuccess(true);
-            setTimeout(() => setImportSuccess(false), 3000);
-        } catch (err: any) {
-            setImportError(err.message || '数据解析故障，请确认格式');
+    useEffect(() => {
+        const cached = readCachedWorkbookAnalytics();
+        if (cached) {
+            setOriginalRecords(cached.records);
+            setRecords(cached.records);
+            setWorkbookAnalytics(cached);
         }
+    }, []);
+
+    const applyWorkbookAnalytics = (analytics: WorkbookAnalytics) => {
+        setOriginalRecords(analytics.records);
+        setRecords(analytics.records);
+        setWorkbookAnalytics(analytics);
+        cacheWorkbookAnalytics(analytics);
+        setImportSuccess(true);
+        setTimeout(() => setImportSuccess(false), 3000);
     };
 
     // Parse Excel File uploaded via drag/drop or input
@@ -286,18 +612,8 @@ zhongyun.lu@axatp.com\t121\t35\t1\t0\t167559\t0\t430649\t0\t0\t0\t0\t1537265\t0\
             try {
                 const data = new Uint8Array(e.target?.result as ArrayBuffer);
                 const workbook = XLSX.read(data, { type: 'array' });
-                const firstSheetName = workbook.SheetNames[0];
-                const worksheet = workbook.Sheets[firstSheetName];
-                
-                // Read sheet as raw tab/carriage separated text representation, then feed to parser
-                // This ensures we parse exactly using the same unified routine
-                const rawCSV = XLSX.utils.sheet_to_txt(worksheet);
-                const parsed = parseTSVData(rawCSV);
-                
-                setOriginalRecords(parsed);
-                setRecords(parsed);
-                setImportSuccess(true);
-                setTimeout(() => setImportSuccess(false), 3000);
+                const analytics = parseWorkbookAnalytics(workbook, AI_CODING_FIXED_FILE_NAME);
+                applyWorkbookAnalytics(analytics);
             } catch (err: any) {
                 setImportError("Excel读取解析错误: " + (err.message || "不支持的格式"));
             }
@@ -374,8 +690,9 @@ zhongyun.lu@axatp.com\t121\t35\t1\t0\t167559\t0\t430649\t0\t0\t0\t0\t1537265\t0\
 
         return records.map(record => {
             const gitStat = getMatchedGitStatForRecord(record);
-            const aiRatio = gitStat.gitAdditions > 0 
-                ? (record.adoptedLines / gitStat.gitAdditions) * 100 
+            const generatedBase = record.generatedLines || record.adoptedLines || 1;
+            const aiRatio = generatedBase > 0 
+                ? (record.adoptedLines / generatedBase) * 100 
                 : 0;
             const teamShare = (record.adoptedLines / totalTeamAIAdopted) * 100;
 
@@ -441,21 +758,11 @@ zhongyun.lu@axatp.com\t121\t35\t1\t0\t167559\t0\t430649\t0\t0\t0\t0\t1537265\t0\
     // Global Statistics Summary cards values
     const globalSummaryStats = useMemo(() => {
         const teamTotalAI = enrichedRecords.reduce((sum, r) => sum + r.adoptedLines, 0);
+        const teamTotalGenerated = enrichedRecords.reduce((sum, r) => sum + (r.generatedLines || r.adoptedLines), 0);
         const teamTotalGitAdditions = enrichedRecords.reduce((sum, r) => sum + r.gitAdditions, 0);
         const teamCueSubmissions = enrichedRecords.reduce((sum, r) => sum + r.cueSubmissions, 0);
         const teamCueAdoptions = enrichedRecords.reduce((sum, r) => sum + r.cueAdoptions, 0);
 
-        // Overall Team Substitution proportion (Weighted ratio)
-        const teamAiSubstitutionRate = teamTotalGitAdditions > 0 
-            ? (teamTotalAI / teamTotalGitAdditions) * 100 
-            : 0;
-
-        // CUE overall adoption efficiency percentage
-        const cueAdoptionRatio = teamCueSubmissions > 0 
-            ? (teamCueAdoptions / teamCueSubmissions) * 100 
-            : 0;
-
-        // Calculate model-by-model aggregate character consumption
         const modelCounts: { [key: string]: number } = {};
         enrichedRecords.forEach(r => {
             Object.entries(r.modelCalls).forEach(([model, val]) => {
@@ -463,25 +770,30 @@ zhongyun.lu@axatp.com\t121\t35\t1\t0\t167559\t0\t430649\t0\t0\t0\t0\t1537265\t0\
             });
         });
 
-        // Sort models by usage size
         const sortedModelsUsage = Object.entries(modelCounts)
             .map(([name, val]) => ({ name, val }))
             .sort((a, b) => b.val - a.val);
 
-        const topModel = sortedModelsUsage.length > 0 ? sortedModelsUsage[0].name : "glm-5.1";
+        const topModel = workbookAnalytics?.modelDistribution[0]?.name || (sortedModelsUsage.length > 0 ? sortedModelsUsage[0].name : 'glm-5.1');
+        const teamAiContributionRate = workbookAnalytics ? workbookAnalytics.aiContributionRate : (teamTotalGenerated > 0 ? (teamTotalAI / teamTotalGenerated) * 100 : 0);
+        const cueAdoptionRatio = workbookAnalytics ? workbookAnalytics.cueAdoptionRate : (teamCueSubmissions > 0 ? (teamCueAdoptions / teamCueSubmissions) * 100 : 0);
 
         return {
             totalAIAdditions: teamTotalAI,
+            totalAIGenerated: workbookAnalytics?.aiGeneratedLines || teamTotalGenerated,
             totalGitAdditions: teamTotalGitAdditions,
-            teamAiSubstitutionRate,
+            teamAiSubstitutionRate: teamAiContributionRate,
             teamCueSubmissions,
             teamCueAdoptions,
             cueAdoptionRatio,
             topModel,
             activeCount: enrichedRecords.filter(r => r.adoptedLines > 0).length,
-            allModelsUsage: sortedModelsUsage
+            allModelsUsage: workbookAnalytics?.modelDistribution.map((m) => ({ name: m.name, val: m.value })) || sortedModelsUsage,
+            languageDistribution: workbookAnalytics?.languageDistribution || [],
+            dailyTrend: workbookAnalytics?.dailyTrend || [],
+            mcpRanking: workbookAnalytics?.mcpRanking || []
         };
-    }, [enrichedRecords]);
+    }, [enrichedRecords, workbookAnalytics]);
 
     // Helper: Generate AI power user badge 
     const getAiPersonaBadge = (ratio: number) => {
@@ -495,14 +807,14 @@ zhongyun.lu@axatp.com\t121\t35\t1\t0\t167559\t0\t430649\t0\t0\t0\t0\t1537265\t0\
     const downloadCSVReport = () => {
         try {
             let csvContent = "\uFEFF"; // BOM
-            csvContent += "排名,账号,AI代码采纳量(LOC),关联Git总量(LOC),个人AI生成占比,团队AI贡献占比,CUE提交数,CUE采纳数,CUE采纳率,主力大模型\n";
+            csvContent += "排名,账号,AI代码采纳量(LOC),AI生成量(LOC),个人AI贡献率,团队AI贡献占比,CUE提交数,CUE采纳数,CUE采纳率,主力大模型\n";
 
             processedAndFilteredRecords.forEach((r, idx) => {
                 const rank = idx + 1;
                 const ratio = r.aiRatio.toFixed(1) + "%";
                 const share = r.teamShare.toFixed(1) + "%";
                 const cueRate = r.cueSubmissions > 0 ? ((r.cueAdoptions / r.cueSubmissions) * 100).toFixed(1) + "%" : "0%";
-                csvContent += `${rank},${r.account},${r.adoptedLines},${r.gitAdditions},${ratio},${share},${r.cueSubmissions},${r.cueAdoptions},${cueRate},${r.primaryModel}\n`;
+                csvContent += `${rank},${r.account},${r.adoptedLines},${r.generatedLines || r.adoptedChars || 0},${ratio},${share},${r.cueSubmissions},${r.cueAdoptions},${cueRate},${r.primaryModel}\n`;
             });
 
             const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -518,8 +830,31 @@ zhongyun.lu@axatp.com\t121\t35\t1\t0\t167559\t0\t430649\t0\t0\t0\t0\t1537265\t0\
         }
     };
 
+    const dimensionCards = workbookAnalytics ? [
+        {
+            title: 'AI 贡献率',
+            value: `${workbookAnalytics.aiContributionRate.toFixed(1)}%`,
+            hint: `${workbookAnalytics.aiAdoptedLines.toLocaleString()} / ${workbookAnalytics.aiGeneratedLines.toLocaleString()} 行`,
+        },
+        {
+            title: 'CUE 采纳率',
+            value: `${workbookAnalytics.cueAdoptionRate.toFixed(1)}%`,
+            hint: `${workbookAnalytics.cueAdoptions.toLocaleString()} / ${workbookAnalytics.cueRecommendations.toLocaleString()} 次`,
+        },
+        {
+            title: '活跃用户',
+            value: `${workbookAnalytics.activeUsers}/${workbookAnalytics.totalUsers}`,
+            hint: `统计时间 ${formatDateRange(workbookAnalytics.since, workbookAnalytics.until)}`,
+        },
+        {
+            title: '主力模型',
+            value: workbookAnalytics.modelDistribution[0]?.name || '未识别',
+            hint: `模型 / 语言 / MCP 多维分析已启用`,
+        },
+    ] : [];
+
     return (
-        <main className="flex-1 p-margin-md md:p-margin-lg space-y-margin-sm overflow-y-auto max-w-7xl mx-auto w-full custom-scrollbar">
+        <main className="flex-1 overflow-y-auto p-margin-sm md:p-margin-md lg:p-margin-lg bg-background custom-scrollbar flex flex-col gap-margin-sm">
             {/* Elegant Display Page Header */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div className="space-y-1">
@@ -528,35 +863,151 @@ zhongyun.lu@axatp.com\t121\t35\t1\t0\t167559\t0\t430649\t0\t0\t0\t0\t1537265\t0\
                             AI-Assisted Efficiency
                         </span>
                         <span className="text-[10px] font-mono tracking-widest bg-pink-500/15 text-pink-400 border border-pink-500/20 px-2 py-0.5 rounded font-semibold">
-                            CUE Mapped Data
+                            TRAE Workbook Ready
                         </span>
                     </div>
                     <h2 className="font-sans font-bold text-[28px] text-on-surface tracking-tight leading-none pt-1">
                         AI 辅助编程效能评估
                     </h2>
                     <p className="font-body-sm text-body-sm text-on-surface-variant max-w-2xl font-medium">
-                        导入模型采纳指标、统计采纳行数。结合存储库真实提交量深度评估每位开发者的 AI 代码生成占比、采纳频度与机能偏好。
+                        上传 TRAE 企业数据分析 Excel 后，自动识别核心数据、用户明细、日趋势、模型、语言和 MCP 分布。当前分析时间范围为 {workbookAnalytics?.since && workbookAnalytics?.until ? `${workbookAnalytics.since} 至 ${workbookAnalytics.until}` : '未识别起止时间'}。
                     </p>
                 </div>
                 
-                <button 
-                    onClick={downloadCSVReport}
-                    className="bg-surface-bright border border-outline text-primary font-body-sm text-body-sm px-4 py-2 rounded-lg shadow-sm hover:bg-surface-container-high transition-all flex items-center gap-2 cursor-pointer group shrink-0 active:scale-95"
-                >
-                    <Download size={15} className="group-hover:translate-y-0.5 duration-150 text-primary" />
-                    导出效能评测报告
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                    <div
+                        onDragEnter={handleDrag}
+                        onDragOver={handleDrag}
+                        onDragLeave={handleDrag}
+                        onDrop={handleDrop}
+                        className={`${dragActive ? 'border-primary bg-primary/5' : 'border-outline bg-surface-bright hover:bg-surface-container-high'} border text-primary font-body-sm text-body-sm px-4 py-2 rounded-lg shadow-sm transition-all cursor-pointer active:scale-95`}
+                    >
+                        <input
+                            type="file"
+                            id="excel-uploader"
+                            accept=".xlsx, .xls"
+                            onChange={handleFileInput}
+                            className="hidden"
+                        />
+                        <label htmlFor="excel-uploader" className="flex items-center gap-2 cursor-pointer font-medium">
+                            <Upload size={15} />
+                            导入 Excel
+                        </label>
+                    </div>
+                    <button 
+                        onClick={downloadCSVReport}
+                        className="bg-surface-bright border border-outline text-primary font-body-sm text-body-sm px-4 py-2 rounded-lg shadow-sm hover:bg-surface-container-high transition-all flex items-center gap-2 cursor-pointer group shrink-0 active:scale-95"
+                    >
+                        <Download size={15} className="group-hover:translate-y-0.5 duration-150 text-primary" />
+                        导出效能评测报告
+                    </button>
+                </div>
             </div>
 
+            {workbookAnalytics && (
+                <div className="bg-surface-bright border border-outline rounded-xl p-margin-sm space-y-4">
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                        <div>
+                            <h3 className="text-headline-sm font-semibold text-on-surface flex items-center gap-2">
+                                <Database size={16} className="text-primary" /> 上传文件解析结果
+                            </h3>
+                                <p className="text-[11px] text-on-surface-variant mt-0.5">
+                                    {workbookAnalytics.sourceName} · 分析时间 {formatDateRange(workbookAnalytics.since, workbookAnalytics.until)}
+                                </p>
+                        </div>
+                        <div className="text-[11px] font-mono text-on-surface-variant bg-surface-dim border border-outline px-3 py-1.5 rounded-lg">
+                            已识别 {workbookAnalytics.totalUsers} 人，活跃 {workbookAnalytics.activeUsers} 人
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                        {dimensionCards.map((card) => (
+                            <div key={card.title} className="rounded-xl border border-outline bg-surface-dim/60 p-4">
+                                <div className="text-[11px] text-on-surface-variant font-semibold">{card.title}</div>
+                                <div className="mt-2 text-xl font-bold text-on-surface break-all">{card.value}</div>
+                                <div className="mt-1 text-[11px] text-on-surface-variant">{card.hint}</div>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <div className="rounded-xl border border-outline bg-surface-dim/40 p-4">
+                            <div className="flex items-center justify-between mb-3">
+                                <h4 className="text-sm font-semibold text-on-surface">AI 贡献率日趋势</h4>
+                                <span className="text-[10px] text-on-surface-variant font-mono">{formatDateRange(workbookAnalytics.since, workbookAnalytics.until)}</span>
+                            </div>
+                            <div className="space-y-3 max-h-72 overflow-y-auto custom-scrollbar pr-1">
+                                {workbookAnalytics.dailyTrend.map((item) => (
+                                    <div key={item.label} className="space-y-1.5">
+                                        <div className="flex items-center justify-between text-[11px] font-mono text-on-surface-variant">
+                                            <span>{item.label}</span>
+                                            <span>{item.contributionRate.toFixed(1)}%</span>
+                                        </div>
+                                        <div className="h-2 rounded-full bg-outline overflow-hidden">
+                                            <div className="h-full bg-gradient-to-r from-primary to-pink-500" style={{ width: `${Math.min(item.contributionRate, 100)}%` }} />
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="rounded-xl border border-outline bg-surface-dim/40 p-4 space-y-4">
+                            <div>
+                                <h4 className="text-sm font-semibold text-on-surface">多维分布</h4>
+                                <p className="text-[11px] text-on-surface-variant mt-0.5">统计时间 {formatDateRange(workbookAnalytics.since, workbookAnalytics.until)}</p>
+                            </div>
+
+                            <div className="space-y-4">
+                                <div>
+                                    <div className="text-[11px] text-on-surface-variant font-semibold mb-2">模型分布</div>
+                                    <div className="space-y-2 max-h-40 overflow-y-auto custom-scrollbar pr-1">
+                                        {workbookAnalytics.modelDistribution.slice(0, 6).map((item) => (
+                                            <div key={item.name} className="flex items-center justify-between text-[11px] font-mono">
+                                                <span className="text-on-surface truncate pr-3">{item.name}</span>
+                                                <span className="text-on-surface-variant">{item.share.toFixed(1)}%</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <div className="text-[11px] text-on-surface-variant font-semibold mb-2">语言分布</div>
+                                    <div className="space-y-2 max-h-40 overflow-y-auto custom-scrollbar pr-1">
+                                        {workbookAnalytics.languageDistribution.slice(0, 6).map((item) => (
+                                            <div key={item.name} className="flex items-center justify-between text-[11px] font-mono">
+                                                <span className="text-on-surface truncate pr-3">{item.name}</span>
+                                                <span className="text-on-surface-variant">{item.share.toFixed(1)}%</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <div className="text-[11px] text-on-surface-variant font-semibold mb-2">Top MCP</div>
+                                    <div className="space-y-2 max-h-40 overflow-y-auto custom-scrollbar pr-1">
+                                        {workbookAnalytics.mcpRanking.slice(0, 6).map((item) => (
+                                            <div key={item.name} className="flex items-center justify-between text-[11px] font-mono">
+                                                <span className="text-on-surface truncate pr-3">{item.name}</span>
+                                                <span className="text-on-surface-variant">{item.calls.toLocaleString()}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Dashboard KPI Top Row */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-margin-sm">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-margin-sm">
                 {/* KPI Item 1: Total AI LOC */}
                 <motion.div 
                     whileHover={{ y: -2 }}
                     className="bg-surface-bright border border-outline rounded-xl p-4 flex flex-col justify-between cursor-pointer card-hover-ambient"
                 >
                     <div className="flex justify-between items-start">
-                        <span className="font-label-caps text-[11px] text-on-surface-variant font-bold uppercase tracking-wider">AI人机混合总采纳行数</span>
+                        <span className="font-label-caps text-[11px] text-on-surface-variant font-bold uppercase tracking-wider">AI 采纳代码总量</span>
                         <div className="p-1.5 bg-primary/10 rounded text-primary">
                             <Code size={14} />
                         </div>
@@ -566,25 +1017,46 @@ zhongyun.lu@axatp.com\t121\t35\t1\t0\t167559\t0\t430649\t0\t0\t0\t0\t1537265\t0\
                             {globalSummaryStats.totalAIAdditions.toLocaleString()} <span className="text-xs text-on-surface-variant font-normal">行 LOC</span>
                         </h3>
                         <p className="font-body-sm text-[11px] text-primary flex items-center gap-1 mt-1 font-semibold">
-                            <Sparkles size={11} className="animate-spin text-primary" /> 交付总量由 AI 直播加速
+                            <Sparkles size={11} className="animate-spin text-primary" /> 由上传表格直接汇总
                         </p>
                     </div>
                 </motion.div>
 
-                {/* KPI Item 2: Substitution percentage */}
+                {/* KPI Item 2: Total AI Generated */}
                 <motion.div 
                     whileHover={{ y: -2 }}
                     className="bg-surface-bright border border-outline rounded-xl p-4 flex flex-col justify-between cursor-pointer card-hover-ambient"
                 >
                     <div className="flex justify-between items-start">
-                        <span className="font-label-caps text-[11px] text-on-surface-variant font-bold uppercase tracking-wider">AI 编程替代比率 (总代率)</span>
+                        <span className="font-label-caps text-[11px] text-on-surface-variant font-bold uppercase tracking-wider">AI 生成代码总量</span>
+                        <div className="p-1.5 bg-cyan-500/10 rounded text-cyan-400">
+                            <FileText size={14} />
+                        </div>
+                    </div>
+                    <div className="mt-4">
+                        <h3 className="font-sans text-[26px] font-bold text-cyan-400">
+                            {(workbookAnalytics?.aiGeneratedLines ?? globalSummaryStats.totalAIGenerated).toLocaleString()} <span className="text-xs text-on-surface-variant font-normal">行 LOC</span>
+                        </h3>
+                        <p className="font-body-sm text-[11px] text-cyan-400 flex items-center gap-1 mt-1 font-semibold">
+                            <Sparkles size={11} className="animate-spin text-cyan-400" /> 来源于 Excel 生成字段
+                        </p>
+                    </div>
+                </motion.div>
+
+                {/* KPI Item 3: Substitution percentage */}
+                <motion.div 
+                    whileHover={{ y: -2 }}
+                    className="bg-surface-bright border border-outline rounded-xl p-4 flex flex-col justify-between cursor-pointer card-hover-ambient"
+                >
+                    <div className="flex justify-between items-start">
+                        <span className="font-label-caps text-[11px] text-on-surface-variant font-bold uppercase tracking-wider">AI Coding 贡献率</span>
                         <div className="p-1.5 bg-[#db2777]/10 rounded text-pink-400">
                             <Percent size={14} />
                         </div>
                     </div>
                     <div className="mt-4">
                         <h3 className="font-sans text-[26px] font-bold text-pink-400">
-                            {globalSummaryStats.teamAiSubstitutionRate.toFixed(1)}% <span className="text-xs text-on-surface-variant font-normal">替代率</span>
+                            {globalSummaryStats.teamAiSubstitutionRate.toFixed(1)}% <span className="text-xs text-on-surface-variant font-normal">采纳/生成</span>
                         </h3>
                         <div className="w-full h-1 bg-outline rounded-full mt-2.5 overflow-hidden">
                             <div className="bg-gradient-to-r from-primary to-pink-500 h-full" style={{ width: `${Math.min(100, globalSummaryStats.teamAiSubstitutionRate)}%` }} />
@@ -592,13 +1064,13 @@ zhongyun.lu@axatp.com\t121\t35\t1\t0\t167559\t0\t430649\t0\t0\t0\t0\t1537265\t0\
                     </div>
                 </motion.div>
 
-                {/* KPI Item 3: CUE Efficiency */}
+                {/* KPI Item 4: CUE Efficiency */}
                 <motion.div 
                     whileHover={{ y: -2 }}
                     className="bg-surface-bright border border-outline rounded-xl p-4 flex flex-col justify-between cursor-pointer card-hover-ambient"
                 >
                     <div className="flex justify-between items-start">
-                        <span className="font-label-caps text-[11px] text-on-surface-variant font-bold uppercase tracking-wider">CUE 提交采纳转化效率</span>
+                        <span className="font-label-caps text-[11px] text-on-surface-variant font-bold uppercase tracking-wider">AI 推荐采纳转化率</span>
                         <div className="p-1.5 bg-[#10b981]/10 rounded text-emerald-400">
                             <Zap size={14} />
                         </div>
@@ -614,13 +1086,15 @@ zhongyun.lu@axatp.com\t121\t35\t1\t0\t167559\t0\t430649\t0\t0\t0\t0\t1537265\t0\
                     </div>
                 </motion.div>
 
-                {/* KPI Item 4: Top Model preferred */}
+                {/* KPI Item 5: Top Model preferred */}
                 <motion.div 
                     whileHover={{ y: -2 }}
                     className="bg-surface-bright border border-outline rounded-xl p-4 flex flex-col justify-between cursor-pointer card-hover-ambient"
                 >
                     <div className="flex justify-between items-start">
-                        <span className="font-label-caps text-[11px] text-on-surface-variant font-bold uppercase tracking-wider">周期最常使能后备大模型</span>
+                        <span className="font-label-caps text-[11px] text-on-surface-variant font-bold uppercase tracking-wider">
+                            {workbookAnalytics?.since && workbookAnalytics?.until ? `${workbookAnalytics.since} 至 ${workbookAnalytics.until} 主力大模型` : '主力大模型'}
+                        </span>
                         <div className="p-1.5 bg-orange-500/10 rounded text-orange-400">
                             <Cpu size={14} />
                         </div>
@@ -630,156 +1104,42 @@ zhongyun.lu@axatp.com\t121\t35\t1\t0\t167559\t0\t430649\t0\t0\t0\t0\t1537265\t0\
                             {globalSummaryStats.topModel}
                         </h3>
                         <p className="font-mono text-[9px] text-on-surface-variant mt-1.5 font-semibold">
-                            活跃模型门类：{globalSummaryStats.allModelsUsage.length} 类
+                            统计时间 {formatDateRange(workbookAnalytics?.since, workbookAnalytics?.until)} · 活跃模型门类：{globalSummaryStats.allModelsUsage.length} 类
                         </p>
                     </div>
                 </motion.div>
             </div>
 
-            {/* Excel Drag & Paste Data Import Hub */}
-            <div className="bg-surface-bright border border-outline rounded-xl shadow-xs overflow-hidden">
-                <div className="border-b border-outline p-4 bg-surface-container-high/40 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
-                    <div>
-                        <h3 className="text-headline-sm font-semibold flex items-center gap-2 text-on-surface">
-                            <Layers size={16} className="text-primary animate-pulse" /> 统计数据导入管理
-                        </h3>
-                        <p className="text-[11px] text-on-surface-variant font-medium mt-0.5">
-                            请将 CUE 导出的 Excel 文件，或者从 Excel 界面框选直接复制粘贴到下方区域。
-                        </p>
-                    </div>
-                    
-                    <div className="flex gap-1.5 bg-surface-dim/40 p-1 rounded-lg border border-outline shrink-0">
-                        <button 
-                            onClick={() => { setImportTab('paste'); setImportError(null); }}
-                            className={`px-3 py-1.5 rounded-md text-xs font-semibold select-none cursor-pointer transition-all ${
-                                importTab === 'paste' 
-                                    ? 'bg-primary text-white shadow-xs' 
-                                    : 'text-on-surface-variant hover:text-on-surface'
-                            }`}
-                        >
-                            直接框选粘贴
-                        </button>
-                        <button 
-                            onClick={() => { setImportTab('upload'); setImportError(null); }}
-                            className={`px-3 py-1.5 rounded-md text-xs font-semibold select-none cursor-pointer transition-all ${
-                                importTab === 'upload' 
-                                    ? 'bg-primary text-white shadow-xs' 
-                                    : 'text-on-surface-variant hover:text-on-surface'
-                            }`}
-                        >
-                            Excel XLSX 导入
-                        </button>
-                    </div>
-                </div>
-
-                <div className="p-margin-sm">
-                    {/* Copy Paste Block */}
-                    {importTab === 'paste' && (
-                        <form onSubmit={handlePasteSubmit} className="space-y-4">
-                            <div className="relative">
-                                <textarea
-                                    value={pastedText}
-                                    onChange={(e) => setPastedText(e.target.value)}
-                                    placeholder="在此粘贴来自 Excel 的统计网格。第一列必须是「用户账号」，接着是「已采纳代码行」，以及「CUE 提交代码次数」等大模型的占比等。"
-                                    className="w-full h-28 bg-surface-dim border border-outline focus:border-primary/50 rounded-xl p-3.5 text-xs font-mono text-on-surface placeholder:text-on-surface-variant/40 outline-none resize-none custom-scrollbar shadow-inner focus:ring-1 focus:ring-primary/20 transition-all"
-                                />
-                                {pastedText === '' && (
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setPastedText(sampleInputString);
-                                        }}
-                                        className="absolute right-3 bottom-3 text-[10px] bg-surface-bright hover:bg-surface-container-high border border-outline text-primary/80 font-bold px-2 py-1 rounded"
-                                    >
-                                        填充系统示例数据
-                                    </button>
-                                )}
-                            </div>
-
-                            <div className="flex justify-between items-center flex-wrap gap-3">
-                                <div className="text-[10px] text-on-surface-variant font-medium flex items-center gap-1.5 bg-surface-bright border border-outline px-2.5 py-1.5 rounded font-mono">
-                                    <AlertCircle size={12} className="text-primary-fixed" />
-                                    支持制表符 \\t 隔开网格，将剪贴板直接 Ctrl+V 到输入框即可无缝分析。
-                                </div>
-                                <button
-                                    type="submit"
-                                    className="bg-primary text-on-primary hover:bg-primary-fixed-dim border border-transparent font-sans text-xs font-bold px-5 py-2 rounded-lg transition-all cursor-pointer shadow-xs active:scale-95 flex items-center gap-1.5"
-                                >
-                                    <Sparkles size={13} />
-                                    秒级解析并应用数据
-                                </button>
-                            </div>
-                        </form>
-                    )}
-
-                    {/* XLSX Binary File Upload Tab */}
-                    {importTab === 'upload' && (
-                        <div 
-                            onDragEnter={handleDrag}
-                            onDragOver={handleDrag}
-                            onDragLeave={handleDrag}
-                            onDrop={handleDrop}
-                            className={`border-2 border-dashed rounded-xl py-8 px-4 flex flex-col items-center justify-center transition-all cursor-pointer select-none ${
-                                dragActive 
-                                    ? 'border-primary bg-primary/5 shadow-inner' 
-                                    : 'border-outline hover:border-primary/40 bg-surface-dim'
-                            }`}
-                        >
-                            <input 
-                                type="file" 
-                                id="excel-uploader" 
-                                accept=".xlsx, .xls, .csv, .txt" 
-                                onChange={handleFileInput}
-                                className="hidden" 
-                            />
-                            <label htmlFor="excel-uploader" className="w-full h-full flex flex-col items-center justify-center cursor-pointer">
-                                <div className="p-3 bg-primary/10 text-primary rounded-full mb-3.5">
-                                    <Upload size={22} />
-                                </div>
-                                <p className="font-headline-sm text-body-md font-semibold text-on-surface">拖拽 Excel 文件 / CSV 释放到此</p>
-                                <p className="text-[11px] text-on-surface-variant mt-1.5 max-w-sm text-center">
-                                    支持 .xlsx, .xls 二进制表，或纯文本。文件必须拥有「用户账号」及「已采纳代码行」两个头部标识。
-                                </p>
-                                <span className="mt-4 text-xs bg-surface-bright border border-outline px-3 py-1.5 rounded-lg text-primary font-bold hover:bg-surface-container-high transition-all">
-                                    手动选择文件
-                                </span>
-                            </label>
+            <AnimatePresence mode="wait">
+                {importError && (
+                    <motion.div 
+                        initial={{ opacity: 0, y: 5 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -5 }}
+                        className="p-3 bg-error-container/20 border border-error/20 text-on-error-container text-xs rounded-lg flex items-start gap-2.5"
+                    >
+                        <AlertCircle size={14} className="shrink-0 mt-0.5" />
+                        <div>
+                            <p className="font-semibold text-error">导入失败</p>
+                            <p className="opacity-80 mt-0.5">{importError}</p>
                         </div>
-                    )}
+                    </motion.div>
+                )}
 
-                    {/* Feedback Alerts */}
-                    <AnimatePresence mode="wait">
-                        {importError && (
-                            <motion.div 
-                                initial={{ opacity: 0, y: 5 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -5 }}
-                                className="mt-4 p-3 bg-error-container/20 border border-error/20 text-on-error-container text-xs rounded-lg flex items-start gap-2.5"
-                            >
-                                <AlertCircle size={14} className="shrink-0 mt-0.5" />
-                                <div>
-                                    <p className="font-semibold text-error">导入失败</p>
-                                    <p className="opacity-80 mt-0.5">{importError}</p>
-                                </div>
-                            </motion.div>
-                        )}
-
-                        {importSuccess && (
-                            <motion.div 
-                                initial={{ opacity: 0, y: 5 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -5 }}
-                                className="mt-4 p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs rounded-lg flex items-center gap-2"
-                            >
-                                <CheckCircle size={15} />
-                                <div>
-                                    <span className="font-semibold">导入成功！</span>已为您覆盖并装载 {originalRecords.length} 名开发者的 AI 采纳统计报表。
-                                </div>
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
-                </div>
-            </div>
+                {importSuccess && (
+                    <motion.div 
+                        initial={{ opacity: 0, y: 5 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -5 }}
+                        className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs rounded-lg flex items-center gap-2"
+                    >
+                        <CheckCircle size={15} />
+                        <div>
+                            <span className="font-semibold">导入成功！</span>已为您覆盖并装载 {originalRecords.length} 名开发者的 AI 采纳统计报表。
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
             {/* Double-Split visualization section */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-margin-sm">
@@ -961,15 +1321,15 @@ zhongyun.lu@axatp.com\t121\t35\t1\t0\t167559\t0\t430649\t0\t0\t0\t0\t1537265\t0\
                                     onClick={() => handleSort('adoptedLines')}
                                 >
                                     <div className="flex items-center justify-end gap-1">
-                                        AI 采纳行数 (LOC) <ArrowUpDown size={11} className="opacity-65" />
+                                        AI 实际采用代码量 <ArrowUpDown size={11} className="opacity-65" />
                                     </div>
                                 </th>
                                 <th 
                                     className="py-3 px-4 font-sans text-right cursor-pointer hover:bg-surface-container-high/40 active:opacity-80 transition-colors"
-                                    onClick={() => handleSort('gitAdditions')}
+                                    onClick={() => handleSort('generatedLines')}
                                 >
                                     <div className="flex items-center justify-end gap-1">
-                                        物理 Git 总加量 <ArrowUpDown size={11} className="opacity-65" />
+                                        AI 生成代码总量 <ArrowUpDown size={11} className="opacity-65" />
                                     </div>
                                 </th>
                                 <th 
@@ -977,7 +1337,7 @@ zhongyun.lu@axatp.com\t121\t35\t1\t0\t167559\t0\t430649\t0\t0\t0\t0\t1537265\t0\
                                     onClick={() => handleSort('aiRatio')}
                                 >
                                     <div className="flex items-center justify-end gap-1 text-pink-400">
-                                        AI 占比/生成比率 <ArrowUpDown size={11} className="opacity-65" />
+                                        个人 AI 贡献率 <ArrowUpDown size={11} className="opacity-65" />
                                     </div>
                                 </th>
                                 <th 
@@ -985,12 +1345,12 @@ zhongyun.lu@axatp.com\t121\t35\t1\t0\t167559\t0\t430649\t0\t0\t0\t0\t1537265\t0\
                                     onClick={() => handleSort('teamShare')}
                                 >
                                     <div className="flex items-center justify-end gap-1 text-primary">
-                                        团队内AI贡献占比 <ArrowUpDown size={11} className="opacity-65" />
+                                        团队 AI 贡献占比 <ArrowUpDown size={11} className="opacity-65" />
                                     </div>
                                 </th>
-                                <th className="py-3 px-4 font-sans text-center">CUE采纳情况 (采纳/推荐)</th>
-                                <th className="py-3 px-4 font-sans text-right">主力使能模型</th>
-                                <th className="py-3 px-4 text-center font-sans w-20">操作</th>
+                                <th className="py-3 px-4 font-sans text-center">代码补全采纳情况</th>
+                                <th className="py-3 px-4 font-sans text-right">最常使用模型</th>
+                                <th className="py-3 px-4 text-center font-sans w-20">查看详情</th>
                             </tr>
                         </thead>
                         <tbody className="font-body-sm text-body-sm divide-y divide-outline/50">
@@ -1027,7 +1387,7 @@ zhongyun.lu@axatp.com\t121\t35\t1\t0\t167559\t0\t430649\t0\t0\t0\t0\t1537265\t0\
                                             {r.adoptedLines.toLocaleString()}
                                         </td>
                                         <td className="py-3 px-4 text-right font-mono text-on-surface-variant">
-                                            {r.gitAdditions.toLocaleString()}
+                                            {(r.generatedLines || r.adoptedChars || r.gitAdditions).toLocaleString()}
                                         </td>
                                         <td className="py-3 px-4 text-right font-mono text-pink-400 font-bold text-xs bg-pink-500/[0.02]">
                                             {r.aiRatio.toFixed(1)}%
@@ -1198,7 +1558,7 @@ zhongyun.lu@axatp.com\t121\t35\t1\t0\t167559\t0\t430649\t0\t0\t0\t0\t1537265\t0\
                                     </div>
                                     <p className="text-[11.5px] text-on-surface leading-relaxed font-sans font-medium">
                                         开发者 <strong className="font-mono">@{selectedRecord.account.split('@')[0]}</strong> 属于 <strong className="text-primary-fixed">{getAiPersonaBadge(selectedRecord.aiRatio).label}</strong>。
-                                        在本诊断周期内，其 AI 代码采纳总量高达 <span className="text-primary font-bold">{selectedRecord.adoptedLines.toLocaleString()} LOC</span>，
+                                        在 {formatDateRange(workbookAnalytics?.since, workbookAnalytics?.until)} 内，其 AI 代码采纳总量高达 <span className="text-primary font-bold">{selectedRecord.adoptedLines.toLocaleString()} LOC</span>，
                                         主力使能引擎为 <span className="text-orange-400 font-bold">{selectedRecord.primaryModel}</span>。
                                         {selectedRecord.aiRatio >= 45 
                                             ? " 高度采纳大屏显示其拥有极其优秀的‘人机协作编码’思维，通常能将常规代码构件及繁琐模板工作全权妥托给大模型，物理写量极其巨大，提质增效成效斐然。"

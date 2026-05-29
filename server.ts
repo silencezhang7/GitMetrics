@@ -195,16 +195,17 @@ async function fetchAllGitLabGroups(): Promise<GitLabGroup[]> {
   return groups;
 }
 
-async function buildProjectMetrics(projects: GitLabProject[]): Promise<ProjectMetrics[]> {
+async function buildProjectMetrics(projects: GitLabProject[], sinceOverride?: string, untilOverride?: string): Promise<ProjectMetrics[]> {
   const now = new Date();
   const yearStart = new Date(now.getFullYear(), 0, 1).toISOString();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const since = sinceOverride || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const until = untilOverride;
 
   return Promise.all(
     projects.map(async (project) => {
       try {
-        const commits30d = await fetchAllGitLabCommits(project.id, since, undefined, 300);
+        const commits30d = await fetchAllGitLabCommits(project.id, since, until, 300);
         const yearCommits = await fetchAllGitLabCommits(project.id, yearStart, undefined, 500);
         const monthCommits = yearCommits.filter((commit) => commit.authored_date >= monthStart);
 
@@ -947,10 +948,13 @@ async function startServer() {
       }
 
       const now = new Date();
+      const { sinceDate, untilDate } = parseDateRange(req.query.since, req.query.until);
+      const summarySince = sinceDate.toISOString();
+      const summaryUntil = untilDate.toISOString();
       
       // Limit to top 30 active projects for trend and metrics calculation
       const { projects, total: totalProjects } = await fetchAllGitLabProjects(groupId, 30);
-      const commitResults = await buildProjectMetrics(projects);
+      const commitResults = await buildProjectMetrics(projects, summarySince, summaryUntil);
 
       const mergeRequests = await gitlabRequest<unknown[]>("/merge_requests?scope=all&state=opened&per_page=1");
       const contributors = new Set<string>();

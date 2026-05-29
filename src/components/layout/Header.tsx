@@ -1,6 +1,7 @@
 import { Menu, Bell, Settings } from 'lucide-react';
 import { useLocation, useSearchParams } from 'react-router-dom';
 import { useState, useEffect } from 'react';
+import logo from '../../images/logo.png';
 
 export const Header = () => {
     const location = useLocation();
@@ -68,7 +69,7 @@ export const Header = () => {
                     <Settings size={20} />
                 </button>
                 <div className="w-8 h-8 rounded-full ml-2 bg-surface-variant border border-outline-variant overflow-hidden cursor-pointer">
-                    <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuA9o2JVNQu9jUYH22wIIMYK8DHrMM5j6mJTdqE1DibYRG9HjEC0NQ6TB9iCkWTLvKym9nahv-ZIDBflFH9kTFY-Z0L4LbH7SV4Y23l4989c59Q0LMGK66mINRd3mnxBulptHQPLKuf7Y2bU-qzT9KA1qnIgU35O68hXLyNBnAZklzDH2vv1xtARm4krPOHdTI2PY82QdJxZJiVVbglHpyzh05n_mzf18xxpiGs9sOtGFc1QpQ9zWBKD0mHeLAhHiGGccy45VlwlRqU" alt="User Avatar" className="w-full h-full object-cover" />
+                    <img src={logo} alt="User Avatar" className="w-full h-full object-cover" />
                 </div>
             </div>
         </header>

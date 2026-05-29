@@ -7,7 +7,7 @@ services:
     env_file:
       - .env
     expose:
-      - "3456"
+      - "3001"
     restart: unless-stopped
 
   nginx:
